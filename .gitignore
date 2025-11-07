@@ -1,6 +1,8 @@
 node_modules
 .dist
+dist/
 .DS_Store
+*.tsbuildinfo
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -8,3 +10,5 @@ package-lock.json
 .idea
 .vscode
 .env
+vite.config.js
+vite.config.d.ts
