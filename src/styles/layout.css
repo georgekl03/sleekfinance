@@ -1,0 +1,131 @@
+.app-shell {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  min-height: 100vh;
+  background: radial-gradient(circle at top left, rgba(255, 179, 71, 0.08), transparent 60%),
+    #121317;
+}
+
+.sidebar {
+  background: linear-gradient(180deg, rgba(28, 31, 38, 0.95), rgba(18, 19, 23, 0.98));
+  border-right: 1px solid var(--border);
+  padding: 1.5rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  color: #121317;
+  font-weight: 700;
+  font-size: 1.25rem;
+}
+
+.brand-name {
+  font-size: 1.1rem;
+}
+
+.nav-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.nav-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.6rem 0.8rem;
+  color: var(--text-muted);
+  text-decoration: none;
+  border-radius: 10px;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.nav-link:hover,
+.nav-link:focus-visible {
+  background: rgba(255, 179, 71, 0.16);
+  color: #fff;
+}
+
+.nav-link-active {
+  background: rgba(255, 179, 71, 0.24);
+  color: #fff;
+  box-shadow: inset 0 0 0 1px rgba(255, 179, 71, 0.35);
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(180deg, rgba(255, 179, 71, 0.04), rgba(18, 19, 23, 1));
+}
+
+.main-header {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 1rem 2rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.logout-button {
+  background: rgba(255, 179, 71, 0.15);
+  color: var(--accent-strong);
+  border: 1px solid rgba(255, 179, 71, 0.4);
+  border-radius: 999px;
+  padding: 0.4rem 1rem;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.logout-button:hover,
+.logout-button:focus-visible {
+  background: rgba(255, 179, 71, 0.25);
+  transform: translateY(-1px);
+}
+
+.content-area {
+  flex: 1;
+  padding: 2rem 3rem;
+}
+
+@media (max-width: 960px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    position: sticky;
+    top: 0;
+    flex-direction: row;
+    overflow-x: auto;
+    padding: 1rem;
+    gap: 1rem;
+  }
+
+  .nav-list {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .nav-link {
+    padding: 0.5rem 0.75rem;
+  }
+}

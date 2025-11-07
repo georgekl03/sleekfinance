@@ -1,0 +1,19 @@
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.page-header h2 {
+  margin: 0;
+  font-size: 1.8rem;
+  color: #fff;
+}
+
+.page-header p {
+  margin: 0.35rem 0 0;
+  color: var(--text-muted);
+  max-width: 60ch;
+}
