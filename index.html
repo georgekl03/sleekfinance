@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SleekFinance - Personal Finance Shell</title>
+    <link rel="stylesheet" href="styles/main.css" />
+  </head>
+  <body>
+    <div id="app">
+      <section class="auth" id="auth">
+        <div class="auth__card">
+          <header>
+            <h1>SleekFinance</h1>
+            <p class="tagline">Unified personal finance control center</p>
+          </header>
+          <form id="login-form" aria-label="Sign in form">
+            <label for="email">Email</label>
+            <input id="email" name="email" type="email" required placeholder="demo@finance.app" />
+            <label for="password">Password</label>
+            <input id="password" name="password" type="password" required placeholder="demo123" />
+            <button type="submit">Sign In</button>
+            <p class="hint">Use demo@finance.app / demo123 to explore.</p>
+            <p class="error" id="login-error" role="alert" aria-live="assertive"></p>
+          </form>
+        </div>
+      </section>
+      <section class="app-shell hidden" id="app-shell" aria-hidden="true">
+        <aside class="sidebar" aria-label="Primary">
+          <div class="brand">
+            <span class="brand__logo" aria-hidden="true">SF</span>
+            <span class="brand__name">SleekFinance</span>
+          </div>
+          <nav>
+            <ul id="nav-list" class="nav"></ul>
+          </nav>
+          <button id="sign-out" class="sign-out" type="button">Sign out</button>
+        </aside>
+        <main class="workspace" id="workspace" tabindex="-1">
+          <header class="workspace__header">
+            <div>
+              <h2 id="page-title">Overview</h2>
+              <p id="page-description">High-level snapshot of your money across all pots and accounts.</p>
+            </div>
+            <button class="tooltip" data-tooltip="Coming soon: contextual tips tailored to each page." aria-label="Feature tips">
+              ?
+            </button>
+          </header>
+          <section class="workspace__content" id="workspace-content"></section>
+        </main>
+      </section>
+    </div>
+    <script type="module" src="scripts/app.js"></script>
+  </body>
+</html>
