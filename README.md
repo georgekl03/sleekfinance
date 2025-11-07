@@ -1,45 +1,126 @@
 # SleekFinance
 
-SleekFinance is a dark-themed personal finance and budgeting workspace. Stage 1 provides an interactive shell with navigation, placeholder content for each upcoming module, and a simple sign-in experience.
+SleekFinance is a dark-themed personal finance and budgeting workspace. Stage 2 adds live data models
+for institutions, accounts, account groups, categories, payees, tags, demo data management, and
+crash-safe logging on top of the Stage 1 navigation shell.
+
+## Requirements
+
+- Node.js 18+
+- npm 9+
+- Python 3.8+ (used by the enhanced launcher and log writer)
 
 ## Quickstart
 
-The app ships with a one-command launcher that installs dependencies (if needed) and boots the Vite dev server.
+Use the Python launcher for a single-command setup that installs dependencies (when required), starts
+Vite, and writes all output to `logs/sleekfinance-dev.log`.
+
+```bash
+python3 launch.py
+```
+
+If you prefer a shell script wrapper you can still run:
 
 ```bash
 ./start.sh
 ```
 
-Once the server is running, open the provided URL in your browser (defaults to `http://localhost:5173`). Use any email and password to sign in and explore the application shell.
+Both commands default to the Vite dev server at `http://localhost:5173`. Use any email/password
+combination to sign in.
 
 ## Available Scripts
 
 | Command | Description |
 | --- | --- |
-| `./start.sh` | Installs dependencies on first run and starts the Vite development server. |
-| `npm run dev` | Starts the Vite development server without installing dependencies. |
+| `python3 launch.py` | Installs dependencies (if missing), starts `npm run dev -- --host 0.0.0.0`, and records the session log. |
+| `./start.sh` | Wrapper around `launch.py` with a fallback to raw npm if Python is unavailable. |
+| `npm run dev` | Starts the Vite development server only. |
 | `npm run build` | Type-checks and bundles the production build. |
-| `npm run preview` | Serves the production build locally after running `npm run build`. |
+| `npm run preview` | Serves the production bundle. |
+
+## Data Model Overview
+
+### Institutions & Accounts
+
+- Institutions own accounts and capture metadata such as type and optional website.
+- Account rules
+  - Opening balance date cannot be in the future.
+  - Names must be unique within an institution.
+  - Toggle inclusion to control participation in overview totals.
+  - Included accounts may join multiple include-only groups; excluded accounts cannot join any
+    include-only group.
+
+Example:
+
+```
+Institution: Modern Bank (type: bank)
+  ├─ Everyday Checking — included in totals, part of "Day-to-Day"
+  └─ Future Savings — included in totals
+Institution: Global Credit (type: card)
+  └─ Global Rewards Card — excluded from totals, in "Exclude: Credit Cycling"
+```
+
+### Account Groups
+
+- Include groups surface focus areas in Overview/Transactions.
+- Exclude groups remove temporary balances; an account cannot belong to an include and exclude group
+  simultaneously.
+- Group badges inherit a configurable colour used on chips and pills.
+
+```
+[Day-to-Day] (include) → Checking, Credit Card
+[Exclude: Credit Cycling] (exclude) → Credit Card only
+```
+
+### Category Hierarchy
+
+- Master Categories are fixed anchors (Income, Essentials, Growth, Discretionary).
+- Each master category contains categories, which contain sub-categories.
+- Categories/sub-categories can be renamed, archived, or merged. Merging preserves historical
+  transactions and moves children automatically.
+
+```
+Income
+  └─ Primary Income
+     ├─ Payroll
+     └─ Bonus
+Essentials
+  └─ Housing → Rent / Utilities
+```
+
+### Payees & Tags
+
+- Payees store default category/sub-category mappings applied on new transactions.
+- Tags provide flexible reporting overlays. Both can be archived without breaking history.
+- Tag colours power table pills and filter chips.
+
+### Demo Data & Logs
+
+- Load sample institutions, accounts, groups, categories, payees, tags, and six months of
+  transactions via **Settings → Demo data controls**.
+- Clear demo data to remove only entities flagged as demo; real data remains untouched.
+- Diagnostics log entries are persisted to `localStorage` and visible in **Settings → Diagnostics
+  log**. The launcher also writes terminal output to `logs/sleekfinance-dev.log`.
 
 ## Project Structure
 
 ```
-├── index.html              # Vite entry point
+├── launch.py               # Python launcher with logging
+├── start.sh                # Shell wrapper around the launcher
 ├── src
-│   ├── App.tsx             # App routing and authentication gate
-│   ├── main.tsx            # React bootstrap
-│   ├── auth/               # Simple auth context
-│   ├── components/         # Reusable UI elements (layout, tooltips, headers)
-│   ├── pages/              # Placeholder content for each navigation section
-│   └── styles/             # Global and component-scoped styles
-├── start.sh                # One-command launcher
+│   ├── App.tsx             # App routing and providers
+│   ├── auth/               # Authentication context
+│   ├── components/         # Layout, tooltips, error boundary
+│   ├── data/               # Data context, models, demo data builders
+│   ├── pages/              # Stage 2 feature pages
+│   ├── utils/              # Formatting, id generation, logging helpers
+│   └── index.css           # Global styles and utility classes
 └── README.md
 ```
 
-## Accessibility & Theming
+## Accessibility & Logging
 
-The shell uses a high-contrast dark palette with orange/yellow accents. Tooltips are placed throughout the experience as placeholders for future contextual help. Layouts are responsive down to tablet sizes, and core navigation is keyboard accessible via focus styles supplied by the browser.
-
-## Next Steps
-
-Future stages will wire up data models, rule engines, import pipelines, analytics dashboards, and investment tracking based on the placeholders introduced here.
+The interface keeps the Stage 1 high-contrast dark palette, keyboard-accessible navigation, and
+expanded tooltips on every form field introduced in Stage 2. Errors are captured by an application
+error boundary and persisted to the client-side log store. The launcher mirrors all stdout/stderr to a
+rotating log file so crashes never disappear with a closed terminal window.

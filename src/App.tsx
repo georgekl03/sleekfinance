@@ -4,7 +4,9 @@ import Layout from './components/Layout';
 import Overview from './pages/Overview';
 import Transactions from './pages/Transactions';
 import Accounts from './pages/Accounts';
-import Pots from './pages/Pots';
+import AccountGroups from './pages/AccountGroups';
+import Categories from './pages/Categories';
+import Payees from './pages/Payees';
 import Budgets from './pages/Budgets';
 import Rules from './pages/Rules';
 import Reports from './pages/Reports';
@@ -13,6 +15,8 @@ import Imports from './pages/Imports';
 import Settings from './pages/Settings';
 import Help from './pages/Help';
 import Login from './pages/Login';
+import { DataProvider } from './data/DataContext';
+import ErrorBoundary from './components/ErrorBoundary';
 
 const AppShell = () => {
   const { isAuthenticated } = useAuth();
@@ -22,28 +26,34 @@ const AppShell = () => {
   }
 
   return (
-    <Layout>
-      <Routes>
-        <Route path="/" element={<Overview />} />
-        <Route path="/transactions" element={<Transactions />} />
-        <Route path="/accounts" element={<Accounts />} />
-        <Route path="/pots" element={<Pots />} />
-        <Route path="/budgets" element={<Budgets />} />
-        <Route path="/rules" element={<Rules />} />
-        <Route path="/reports" element={<Reports />} />
-        <Route path="/investments" element={<Investments />} />
-        <Route path="/imports" element={<Imports />} />
-        <Route path="/settings" element={<Settings />} />
-        <Route path="/help" element={<Help />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </Layout>
+    <ErrorBoundary>
+      <Layout>
+        <Routes>
+          <Route path="/" element={<Overview />} />
+          <Route path="/transactions" element={<Transactions />} />
+          <Route path="/accounts" element={<Accounts />} />
+          <Route path="/account-groups" element={<AccountGroups />} />
+          <Route path="/categories" element={<Categories />} />
+          <Route path="/payees" element={<Payees />} />
+          <Route path="/budgets" element={<Budgets />} />
+          <Route path="/rules" element={<Rules />} />
+          <Route path="/reports" element={<Reports />} />
+          <Route path="/investments" element={<Investments />} />
+          <Route path="/imports" element={<Imports />} />
+          <Route path="/settings" element={<Settings />} />
+          <Route path="/help" element={<Help />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Layout>
+    </ErrorBoundary>
   );
 };
 
 const App = () => (
   <AuthProvider>
-    <AppShell />
+    <DataProvider>
+      <AppShell />
+    </DataProvider>
   </AuthProvider>
 );
 
