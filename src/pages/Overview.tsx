@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import PageHeader from '../components/PageHeader';
 import Tooltip from '../components/Tooltip';
 import { useData } from '../data/DataContext';
@@ -6,12 +6,34 @@ import { formatCurrency, formatDate } from '../utils/format';
 
 const Overview = () => {
   const { state } = useData();
-  const accounts = useMemo(() => state.accounts.filter((account) => !account.archived), [state.accounts]);
+  const accounts = useMemo(
+    () => state.accounts.filter((account) => !account.archived),
+    [state.accounts]
+  );
   const accountGroups = useMemo(
     () => state.accountGroups.filter((group) => !group.archived),
     [state.accountGroups]
   );
   const [selectedGroup, setSelectedGroup] = useState<string>('totals');
+
+  const rateLookup = useMemo(() => {
+    const map = new Map<string, number>();
+    state.settings.exchangeRates.forEach((rate) => {
+      map.set(rate.currency.toUpperCase(), rate.rateToBase);
+    });
+    if (!map.has(state.settings.baseCurrency.toUpperCase())) {
+      map.set(state.settings.baseCurrency.toUpperCase(), 1);
+    }
+    return map;
+  }, [state.settings.baseCurrency, state.settings.exchangeRates]);
+
+  const convertToBase = useCallback(
+    (amount: number, currency: string) => {
+      const rate = rateLookup.get(currency.toUpperCase()) ?? 1;
+      return amount * rate;
+    },
+    [rateLookup]
+  );
 
   const filteredAccounts = useMemo(() => {
     if (selectedGroup === 'all') return accounts;
@@ -24,8 +46,12 @@ const Overview = () => {
   }, [accounts, accountGroups, selectedGroup]);
 
   const totalBalance = useMemo(
-    () => filteredAccounts.reduce((sum, account) => sum + account.currentBalance, 0),
-    [filteredAccounts]
+    () =>
+      filteredAccounts.reduce(
+        (sum, account) => sum + convertToBase(account.currentBalance, account.currency),
+        0
+      ),
+    [convertToBase, filteredAccounts]
   );
 
   const sixMonthAgo = useMemo(() => {
@@ -38,15 +64,15 @@ const Overview = () => {
     return state.transactions
       .filter((transaction) => new Date(transaction.date) >= sixMonthAgo)
       .filter((transaction) => transaction.amount > 0)
-      .reduce((sum, transaction) => sum + transaction.amount, 0);
-  }, [state.transactions, sixMonthAgo]);
+      .reduce((sum, transaction) => sum + convertToBase(transaction.amount, transaction.currency), 0);
+  }, [convertToBase, state.transactions, sixMonthAgo]);
 
   const spending = useMemo(() => {
     return state.transactions
       .filter((transaction) => new Date(transaction.date) >= sixMonthAgo)
       .filter((transaction) => transaction.amount < 0)
-      .reduce((sum, transaction) => sum + transaction.amount, 0);
-  }, [state.transactions, sixMonthAgo]);
+      .reduce((sum, transaction) => sum + convertToBase(transaction.amount, transaction.currency), 0);
+  }, [convertToBase, state.transactions, sixMonthAgo]);
 
   const netFlow = income + spending;
 
@@ -90,22 +116,22 @@ const Overview = () => {
         <div className="placeholder-grid" aria-label="Overview metrics">
           <div className="placeholder-tile">
             <h3>Total balance</h3>
-            <p>{formatCurrency(totalBalance)}</p>
+            <p>{formatCurrency(totalBalance, state.settings.baseCurrency)}</p>
             <Tooltip label="Sum of current balances for the filtered accounts." />
           </div>
           <div className="placeholder-tile">
             <h3>6 month income</h3>
-            <p>{formatCurrency(income)}</p>
+            <p>{formatCurrency(income, state.settings.baseCurrency)}</p>
             <Tooltip label="Positive transactions from the last six months." />
           </div>
           <div className="placeholder-tile">
             <h3>6 month spending</h3>
-            <p>{formatCurrency(spending)}</p>
+            <p>{formatCurrency(spending, state.settings.baseCurrency)}</p>
             <Tooltip label="Negative transactions from the last six months." />
           </div>
           <div className="placeholder-tile">
             <h3>Net cash flow</h3>
-            <p>{formatCurrency(netFlow)}</p>
+            <p>{formatCurrency(netFlow, state.settings.baseCurrency)}</p>
             <Tooltip label="Income plus spending across the same period." />
           </div>
         </div>
@@ -124,9 +150,11 @@ const Overview = () => {
                   {account.includeInTotals ? 'Included' : 'Excluded'}
                 </span>
               </div>
-              <p className="muted-text">{account.type.toUpperCase()} • Opened {formatDate(account.openingBalanceDate)}</p>
+              <p className="muted-text">
+                {account.type.toUpperCase()} • {account.currency} • Opened {formatDate(account.openingBalanceDate)}
+              </p>
               <p>
-                <strong>{formatCurrency(account.currentBalance)}</strong>
+                <strong>{formatCurrency(account.currentBalance, account.currency)}</strong>
               </p>
               {account.includeOnlyGroupIds.length > 0 && (
                 <div className="chip-list">

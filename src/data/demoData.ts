@@ -1,4 +1,18 @@
-import { Account, AccountGroup, Category, DataState, Institution, MasterCategory, Payee, SubCategory, Tag, Transaction } from './models';
+import {
+  Account,
+  AccountGroup,
+  Category,
+  CurrencyCode,
+  DataState,
+  ImportDefaults,
+  Institution,
+  MasterCategory,
+  Payee,
+  SettingsState,
+  SubCategory,
+  Tag,
+  Transaction
+} from './models';
 import { generateId } from '../utils/id';
 
 const today = new Date();
@@ -36,6 +50,7 @@ type DemoBuildResult = {
   payees: Payee[];
   tags: Tag[];
   transactions: Transaction[];
+  settings: SettingsState;
 };
 
 const addMonths = (base: Date, delta: number) => {
@@ -78,6 +93,15 @@ const buildDemoData = (): DemoBuildResult => {
     {
       id: generateId('cat'),
       masterCategoryId: 'mc_growth',
+      name: 'Transfers',
+      archived: false,
+      previousNames: [],
+      mergedIntoId: null,
+      isDemo: true
+    },
+    {
+      id: generateId('cat'),
+      masterCategoryId: 'mc_growth',
       name: 'Savings',
       archived: false,
       previousNames: [],
@@ -112,6 +136,18 @@ const buildDemoData = (): DemoBuildResult => {
             id: generateId('sub'),
             categoryId: category.id,
             name: 'Bonus',
+            archived: false,
+            previousNames: [],
+            mergedIntoId: null,
+            isDemo: true
+          }
+        ];
+      case 'Transfers':
+        return [
+          {
+            id: generateId('sub'),
+            categoryId: category.id,
+            name: 'Internal Transfer',
             archived: false,
             previousNames: [],
             mergedIntoId: null,
@@ -227,12 +263,15 @@ const buildDemoData = (): DemoBuildResult => {
     }
   ];
 
+  const defaultCurrency: CurrencyCode = 'GBP';
+
   const accounts: Account[] = [
     {
       id: generateId('acct'),
       institutionId: institutions[0].id,
       name: 'Everyday Checking',
       type: 'checking',
+      currency: defaultCurrency,
       includeInTotals: true,
       includeOnlyGroupIds: [],
       excludeGroupId: null,
@@ -248,6 +287,7 @@ const buildDemoData = (): DemoBuildResult => {
       institutionId: institutions[0].id,
       name: 'Future Savings',
       type: 'savings',
+      currency: defaultCurrency,
       includeInTotals: true,
       includeOnlyGroupIds: [],
       excludeGroupId: null,
@@ -262,6 +302,7 @@ const buildDemoData = (): DemoBuildResult => {
       institutionId: institutions[1].id,
       name: 'Global Rewards Card',
       type: 'credit',
+      currency: defaultCurrency,
       includeInTotals: false,
       includeOnlyGroupIds: [],
       excludeGroupId: null,
@@ -346,10 +387,15 @@ const buildDemoData = (): DemoBuildResult => {
         payeeId: payroll.id,
         date: new Date(monthStart.getTime() + 2 * 24 * 60 * 60 * 1000).toISOString(),
         amount: account.type === 'credit' ? -2600 : 2600,
+        currency: account.currency,
+        nativeAmount: account.type === 'credit' ? -2600 : 2600,
+        nativeCurrency: account.currency,
         memo: 'Monthly payroll deposit',
         categoryId: payroll.defaultCategoryId,
         subCategoryId: payroll.defaultSubCategoryId,
         tags: [tags[0].id],
+        importBatchId: null,
+        metadata: undefined,
         isDemo: true
       });
 
@@ -361,10 +407,15 @@ const buildDemoData = (): DemoBuildResult => {
           payeeId: groceryPayee.id,
           date: new Date(monthStart.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString(),
           amount: -180,
+          currency: account.currency,
+          nativeAmount: -180,
+          nativeCurrency: account.currency,
           memo: 'Weekly groceries',
           categoryId: groceryPayee.defaultCategoryId,
           subCategoryId: groceryPayee.defaultSubCategoryId,
           tags: [tags[0].id],
+          importBatchId: null,
+          metadata: undefined,
           isDemo: true
         });
         transactions.push({
@@ -373,10 +424,15 @@ const buildDemoData = (): DemoBuildResult => {
           payeeId: groceryPayee.id,
           date: new Date(monthStart.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString(),
           amount: -165,
+          currency: account.currency,
+          nativeAmount: -165,
+          nativeCurrency: account.currency,
           memo: 'Weekly groceries',
           categoryId: groceryPayee.defaultCategoryId,
           subCategoryId: groceryPayee.defaultSubCategoryId,
           tags: [],
+          importBatchId: null,
+          metadata: undefined,
           isDemo: true
         });
       }
@@ -388,14 +444,34 @@ const buildDemoData = (): DemoBuildResult => {
         payeeId: utilitiesPayee.id,
         date: new Date(monthStart.getTime() + 20 * 24 * 60 * 60 * 1000).toISOString(),
         amount: -220,
+        currency: account.currency,
+        nativeAmount: -220,
+        nativeCurrency: account.currency,
         memo: 'Monthly utilities',
         categoryId: utilitiesPayee.defaultCategoryId,
         subCategoryId: utilitiesPayee.defaultSubCategoryId,
         tags: [tags[1].id],
+        importBatchId: null,
+        metadata: undefined,
         isDemo: true
       });
     }
   });
+
+  const importDefaults: ImportDefaults = {
+    dateFormat: 'YYYY-MM-DD',
+    decimalSeparator: '.',
+    thousandsSeparator: ',',
+    signConvention: 'positive-credit'
+  };
+
+  const settings: SettingsState = {
+    baseCurrency: defaultCurrency,
+    exchangeRates: [{ currency: defaultCurrency, rateToBase: 1 }],
+    lastExchangeRateUpdate: new Date().toISOString(),
+    importDefaults,
+    importProfiles: []
+  };
 
   return {
     masterCategories,
@@ -406,7 +482,8 @@ const buildDemoData = (): DemoBuildResult => {
     accountGroups,
     payees,
     tags,
-    transactions
+    transactions,
+    settings
   };
 };
 
@@ -422,6 +499,8 @@ export const buildInitialState = (): DataState => {
     payees: demo.payees,
     tags: demo.tags,
     transactions: demo.transactions,
+    importBatches: [],
+    settings: demo.settings,
     lastUpdated: new Date().toISOString()
   };
 };

@@ -1,0 +1,10 @@
+Date,Description,Amount,Payee,Notes,Category Path
+01/03/2024,Salary Payment,2500.00,Employer Ltd,Monthly salary,Income>Primary Income>Payroll
+04/03/2024,Student Finance Grant,600.00,Student Finance England,Spring disbursement,Income>Primary Income>Grants
+05/03/2024,Rent Payment,-950.00,Green Lettings,March rent,Essentials>Housing>Rent
+08/03/2024,Grocery Run,-86.42,Sainsbury's,Basket shop,Essentials>Food & Dining>Groceries
+12/03/2024,Utilities Direct Debit,-120.15,Utility Hub Ltd,Gas & electric,Essentials>Housing>Utilities
+17/03/2024,Coffee & Snacks,-14.20,Pret A Manger,Lunch catch up,Discretionary>Eating Out>Cafes
+22/03/2024,Salary Payment,2500.00,Employer Ltd,Month-end advance,Income>Primary Income>Payroll
+25/03/2024,Rent Payment,-950.00,Green Lettings,April rent,Essentials>Housing>Rent
+28/03/2024,Friday Groceries,-94.88,Tesco,Weekly shop,Essentials>Food & Dining>Groceries

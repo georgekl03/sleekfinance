@@ -17,12 +17,19 @@ type TransactionRowProps = {
   accounts: Account[];
   payees: Payee[];
   tags: Tag[];
+  baseCurrency: string;
 };
 
-const TransactionRow = ({ transaction, accounts, payees, tags }: TransactionRowProps) => {
+const TransactionRow = ({ transaction, accounts, payees, tags, baseCurrency }: TransactionRowProps) => {
   const { updateTransaction, archiveTransaction } = useData();
   const account = accounts.find((item) => item.id === transaction.accountId);
   const payee = payees.find((item) => item.id === transaction.payeeId);
+  const currency = account?.currency ?? transaction.currency ?? baseCurrency;
+
+  const showFxDetails =
+    transaction.nativeCurrency &&
+    transaction.nativeCurrency !== currency &&
+    typeof transaction.nativeAmount === 'number';
 
   const handleTagChange = (selected: string[]) => {
     updateTransaction(transaction.id, { tags: selected });
@@ -39,7 +46,21 @@ const TransactionRow = ({ transaction, accounts, payees, tags }: TransactionRowP
       <td>{formatDate(transaction.date)}</td>
       <td>{account ? account.name : 'Unknown account'}</td>
       <td>{payee ? payee.name : 'Unassigned'}</td>
-      <td>{formatCurrency(transaction.amount)}</td>
+      <td>
+        {formatCurrency(transaction.amount, currency)}
+        {showFxDetails && (
+          <div className="muted-text" style={{ fontSize: '0.75rem' }}>
+            {formatCurrency(transaction.nativeAmount ?? 0, transaction.nativeCurrency ?? currency)}
+            {transaction.fxRate && (
+              <>
+                {' '}
+                (rate {transaction.fxRate.toFixed(4)})
+              </>
+            )}
+            {transaction.needsFx && <span className="badge" style={{ marginLeft: '0.5rem' }}>Needs FX</span>}
+          </div>
+        )}
+      </td>
       <td>{transaction.memo ?? '—'}</td>
       <td>
         <select
@@ -112,7 +133,8 @@ const Transactions = () => {
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const amount = Number.parseFloat(form.amount);
-    if (!form.accountId || Number.isNaN(amount)) {
+    const account = accounts.find((acct) => acct.id === form.accountId);
+    if (!account || Number.isNaN(amount)) {
       setTransactionError({
         title: 'Missing details',
         description: 'Account and a valid numeric amount are required.'
@@ -124,10 +146,16 @@ const Transactions = () => {
       payeeId: form.payeeId || null,
       date: new Date(form.date).toISOString(),
       amount,
+      currency: account.currency,
+      nativeAmount: amount,
+      nativeCurrency: account.currency,
+      needsFx: false,
       memo: form.memo,
       categoryId: null,
       subCategoryId: null,
-      tags: form.tags
+      tags: form.tags,
+      importBatchId: null,
+      metadata: undefined
     });
     setTransactionError(null);
     setForm({
@@ -296,15 +324,16 @@ const Transactions = () => {
               </tr>
             </thead>
             <tbody>
-              {visibleTransactions.map((transaction) => (
-                <TransactionRow
-                  key={transaction.id}
-                  transaction={transaction}
-                  accounts={accounts}
-                  payees={payees}
-                  tags={tags}
-                />
-              ))}
+          {visibleTransactions.map((transaction) => (
+            <TransactionRow
+              key={transaction.id}
+              transaction={transaction}
+              accounts={accounts}
+              payees={payees}
+              tags={tags}
+              baseCurrency={state.settings.baseCurrency}
+            />
+          ))}
               {visibleTransactions.length === 0 && (
                 <tr>
                   <td colSpan={7} className="muted-text">

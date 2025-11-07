@@ -285,6 +285,10 @@ button {
   color: var(--text-muted);
 }
 
+.muted-text.small {
+  font-size: 0.8rem;
+}
+
 .help-diagram {
   display: grid;
   gap: 0.75rem;
@@ -292,4 +296,52 @@ button {
   border-radius: 12px;
   border: 1px dashed rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.03);
+}
+
+.exchange-rate-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.exchange-rate-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.exchange-rate-row .rate-label {
+  font-weight: 600;
+  min-width: 64px;
+}
+
+.exchange-rate-row input[type='number'] {
+  width: 120px;
+}
+
+.exchange-rate-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.exchange-rate-add input {
+  width: 120px;
+}
+
+.link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.link-button:hover {
+  text-decoration: underline;
 }
