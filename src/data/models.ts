@@ -1,5 +1,7 @@
 export type InclusionMode = 'included' | 'excluded';
 
+export type CurrencyCode = string;
+
 export type MasterCategory = {
   id: string;
   name: string;
@@ -42,6 +44,7 @@ export type Account = {
   name: string;
   accountNumber?: string;
   type: 'checking' | 'savings' | 'credit' | 'loan' | 'investment' | 'cash';
+  currency: CurrencyCode;
   includeInTotals: boolean;
   includeOnlyGroupIds: string[];
   excludeGroupId: string | null;
@@ -89,11 +92,107 @@ export type Transaction = {
   payeeId: string | null;
   date: string;
   amount: number;
+  currency: CurrencyCode;
+  nativeAmount?: number | null;
+  nativeCurrency?: CurrencyCode | null;
+  fxRate?: number | null;
+  needsFx?: boolean;
+  description?: string;
+  rawDescription?: string;
   memo?: string;
   categoryId: string | null;
   subCategoryId: string | null;
   tags: string[];
+  importBatchId?: string | null;
+  metadata?: Record<string, unknown>;
   isDemo: boolean;
+};
+
+export type ImportSignConvention = 'positive-credit' | 'explicit-columns';
+
+export type ImportFormatOptions = {
+  dateFormat: string;
+  decimalSeparator: ',' | '.';
+  thousandsSeparator: ',' | '.' | ' ';
+  signConvention: ImportSignConvention;
+};
+
+export type ImportField =
+  | 'date'
+  | 'amount'
+  | 'debit'
+  | 'credit'
+  | 'description'
+  | 'payee'
+  | 'counterparty'
+  | 'currency'
+  | 'balance'
+  | 'externalId'
+  | 'categoryPath'
+  | 'notes';
+
+export type ImportColumnMapping = Partial<Record<ImportField, string[]>>;
+
+export type ImportProfile = {
+  id: string;
+  name: string;
+  headerFingerprint: string;
+  fieldMapping: ImportColumnMapping;
+  format: ImportFormatOptions;
+  transforms: Record<string, string>;
+  updatedAt: string;
+};
+
+export type ImportFxMode = 'single-rate' | 'rate-column' | 'skip';
+
+export type ImportBatchSummary = {
+  importedCount: number;
+  duplicateCount: number;
+  invalidCount: number;
+  fxAppliedCount: number;
+  needsFxCount: number;
+  earliestDate: string | null;
+  latestDate: string | null;
+  totalsByCurrency: Record<CurrencyCode, { debit: number; credit: number }>;
+};
+
+export type ImportBatch = {
+  id: string;
+  accountId: string;
+  profileId: string | null;
+  profileName: string | null;
+  createdAt: string;
+  sourceFileName: string;
+  headerFingerprint: string;
+  options: ImportFormatOptions & {
+    rememberProfile: boolean;
+    fxMode: ImportFxMode;
+    fxRate?: number;
+    fxRateColumn?: string;
+    includeDuplicates: boolean;
+    autoMarkTransfers: boolean;
+    defaultCategoryId?: string | null;
+    defaultSubCategoryId?: string | null;
+  };
+  summary: ImportBatchSummary;
+  transactionIds: string[];
+  log: HistoryEntry[];
+  isDemo: boolean;
+};
+
+export type ExchangeRate = {
+  currency: CurrencyCode;
+  rateToBase: number;
+};
+
+export type ImportDefaults = ImportFormatOptions;
+
+export type SettingsState = {
+  baseCurrency: CurrencyCode;
+  exchangeRates: ExchangeRate[];
+  lastExchangeRateUpdate: string | null;
+  importDefaults: ImportDefaults;
+  importProfiles: ImportProfile[];
 };
 
 export type DataState = {
@@ -106,6 +205,8 @@ export type DataState = {
   payees: Payee[];
   tags: Tag[];
   transactions: Transaction[];
+  importBatches: ImportBatch[];
+  settings: SettingsState;
   lastUpdated: string | null;
 };
 

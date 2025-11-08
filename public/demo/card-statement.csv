@@ -1,0 +1,6 @@
+Posted,Merchant,Reference,Debit,Credit,Currency,Statement ID
+15/03/2024,Amazon UK,ORDER123,58.44,,GBP,STMT-0001
+16/03/2024,Pret A Manger,PM-54892,7.85,,GBP,STMT-0001
+18/03/2024,TFL Travel,TRVL8271,3.20,,GBP,STMT-0001
+20/03/2024,Refund - Bookshop,RFD-9921,,12.99,GBP,STMT-0001
+25/03/2024,Monthly Card Payment,DD-55421,,250.00,GBP,STMT-0001

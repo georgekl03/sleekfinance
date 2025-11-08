@@ -1,8 +1,8 @@
 # SleekFinance
 
-SleekFinance is a dark-themed personal finance and budgeting workspace. Stage 2 adds live data models
-for institutions, accounts, account groups, categories, payees, tags, demo data management, and
-crash-safe logging on top of the Stage 1 navigation shell.
+SleekFinance is a dark-themed personal finance and budgeting workspace. Stage 3 expands the app with a
+multi-step imports wizard, mapping profiles, FX handling, duplicate detection, manual exchange rate
+management, and configurable import defaults layered on top of the Stage 2 data models and logging.
 
 ## Requirements
 
@@ -12,14 +12,20 @@ crash-safe logging on top of the Stage 1 navigation shell.
 
 ## Quickstart
 
-Use the Python launcher for a single-command setup that installs dependencies (when required), starts
-Vite, and writes all output to `logs/sleekfinance-dev.log`.
+On macOS and Linux use the Python launcher for a single-command setup that installs dependencies
+(when required), starts Vite, and writes all output to `logs/sleekfinance-dev.log`.
 
 ```bash
 python3 launch.py
 ```
 
-If you prefer a shell script wrapper you can still run:
+On Windows run the bundled batch script:
+
+```bat
+start.bat
+```
+
+If you prefer a POSIX shell wrapper you can still run:
 
 ```bash
 ./start.sh
@@ -33,10 +39,29 @@ combination to sign in.
 | Command | Description |
 | --- | --- |
 | `python3 launch.py` | Installs dependencies (if missing), starts `npm run dev -- --host 0.0.0.0`, and records the session log. |
-| `./start.sh` | Wrapper around `launch.py` with a fallback to raw npm if Python is unavailable. |
+| `start.bat` | Windows-friendly launcher that installs dependencies on first run and starts the dev server. |
+| `./start.sh` | POSIX shell wrapper around `launch.py` with a fallback to raw npm if Python is unavailable. |
 | `npm run dev` | Starts the Vite development server only. |
 | `npm run build` | Type-checks and bundles the production build. |
 | `npm run preview` | Serves the production bundle. |
+
+## Stage 3 highlights
+
+- **Imports wizard** – Guided flow with steps for Upload → Mapping → Preview → Conflicts → Import → Summary.
+  Supports drag-and-drop CSV upload, demo files, field mapping (including multi-column descriptions),
+  duplicate detection, FX options, default categories, and per-row overrides.
+- **Mapping profiles** – Auto-detect profiles by header fingerprint, remember revised mappings, and
+  reuse saved profiles across imports.
+- **Multi-currency readiness** – Accounts retain their native currency, imports capture both native and
+  converted amounts, and duplicates are scoped per account. FX rates can be supplied manually or via
+  per-row columns with rounding safeguards.
+- **Manual exchange rates** – Settings now provide a base currency selector (default GBP), a manual
+  exchange-rate table, and the date of the last rate update. Stage 3 documents that live rates are not
+  fetched automatically.
+- **Import defaults** – Configure preferred date format, decimal and thousands separators, and sign
+  convention in Settings. The wizard pre-fills these defaults for new uploads.
+- **Demo CSVs and quick testing** – Download staged CSV samples, load them directly into the wizard, and
+  clear imported demo transactions per account.
 
 ## Data Model Overview
 

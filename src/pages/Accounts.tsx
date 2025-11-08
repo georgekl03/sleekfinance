@@ -23,6 +23,7 @@ const AccountRow = ({ account, includeGroups, excludeGroups }: AccountRowProps) 
   const [name, setName] = useState(account.name);
   const [notes, setNotes] = useState(account.notes ?? '');
   const [currentBalance, setCurrentBalance] = useState(account.currentBalance.toString());
+  const [currency, setCurrency] = useState(account.currency);
   const [error, setError] = useState<DataActionError | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -30,7 +31,8 @@ const AccountRow = ({ account, includeGroups, excludeGroups }: AccountRowProps) 
     setName(account.name);
     setNotes(account.notes ?? '');
     setCurrentBalance(account.currentBalance.toString());
-  }, [account.id, account.name, account.notes, account.currentBalance]);
+    setCurrency(account.currency);
+  }, [account.id, account.name, account.notes, account.currentBalance, account.currency]);
 
   const handleSave = () => {
     setSaving(true);
@@ -41,7 +43,8 @@ const AccountRow = ({ account, includeGroups, excludeGroups }: AccountRowProps) 
       currentBalance: Number.isNaN(numericBalance) ? account.currentBalance : numericBalance,
       includeOnlyGroupIds: account.includeOnlyGroupIds,
       excludeGroupId: account.excludeGroupId,
-      includeInTotals: account.includeInTotals
+      includeInTotals: account.includeInTotals,
+      currency
     });
     setSaving(false);
     setError(result);
@@ -69,8 +72,8 @@ const AccountRow = ({ account, includeGroups, excludeGroups }: AccountRowProps) 
         <div>
           <h4>{name}</h4>
           <p className="muted-text">
-            {account.type.toUpperCase()} • Opening balance {formatCurrency(account.openingBalance)} on{' '}
-            {formatDate(account.openingBalanceDate)}
+            {account.type.toUpperCase()} • {account.currency} • Opening balance{' '}
+            {formatCurrency(account.openingBalance, account.currency)} on {formatDate(account.openingBalanceDate)}
           </p>
         </div>
         <div className="chip-list">
@@ -92,6 +95,21 @@ const AccountRow = ({ account, includeGroups, excludeGroups }: AccountRowProps) 
             onChange={(event) => setName(event.target.value)}
             onBlur={handleSave}
             placeholder="e.g. Everyday Checking"
+          />
+        </div>
+        <div className="field">
+          <label htmlFor={`currency-${account.id}`}>
+            Currency
+            <Tooltip label="Native currency for this account. Imports default to this unless overridden by a file column." />
+          </label>
+          <input
+            id={`currency-${account.id}`}
+            value={currency}
+            onChange={(event) => setCurrency(event.target.value.toUpperCase())}
+            onBlur={handleSave}
+            placeholder="GBP"
+            maxLength={3}
+            style={{ textTransform: 'uppercase' }}
           />
         </div>
         <div className="field">
@@ -241,16 +259,17 @@ const Accounts = () => {
   const [institutionForm, setInstitutionForm] = useState({ name: '', type: 'bank' as Institution['type'], website: '' });
   const [institutionError, setInstitutionError] = useState<DataActionError | null>(null);
   const [accountError, setAccountError] = useState<DataActionError | null>(null);
-  const [accountForm, setAccountForm] = useState({
+  const [accountForm, setAccountForm] = useState(() => ({
     institutionId: '',
     name: '',
     type: 'checking' as Account['type'],
+    currency: state.settings.baseCurrency,
     openingBalance: '0',
     openingBalanceDate: new Date().toISOString().slice(0, 10),
     includeInTotals: true,
     includeOnlyGroupIds: [] as string[],
     excludeGroupId: ''
-  });
+  }));
 
   const handleInstitutionSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -274,6 +293,7 @@ const Accounts = () => {
       institutionId: accountForm.institutionId,
       name: accountForm.name,
       type: accountForm.type,
+      currency: accountForm.currency,
       openingBalance: Number.parseFloat(accountForm.openingBalance || '0'),
       openingBalanceDate: accountForm.openingBalanceDate,
       includeInTotals: accountForm.includeInTotals,
@@ -287,6 +307,7 @@ const Accounts = () => {
         institutionId: '',
         name: '',
         type: 'checking',
+        currency: state.settings.baseCurrency,
         openingBalance: '0',
         openingBalanceDate: new Date().toISOString().slice(0, 10),
         includeInTotals: true,
@@ -443,6 +464,26 @@ const Accounts = () => {
               <option value="investment">Investment</option>
               <option value="cash">Cash</option>
             </select>
+          </div>
+          <div className="field">
+            <label htmlFor="account-currency">
+              Currency
+              <Tooltip label="Currency of statements for this account." />
+            </label>
+            <input
+              id="account-currency"
+              value={accountForm.currency}
+              onChange={(event) =>
+                setAccountForm((current) => ({
+                  ...current,
+                  currency: event.target.value.toUpperCase()
+                }))
+              }
+              placeholder={state.settings.baseCurrency}
+              maxLength={3}
+              style={{ textTransform: 'uppercase' }}
+              required
+            />
           </div>
           <div className="field">
             <label htmlFor="account-opening-balance">

@@ -11,12 +11,18 @@ import {
   AccountGroup,
   AccountGroupType,
   Category,
+  CurrencyCode,
   DataActionError,
   DataState,
+  ImportBatch,
+  ImportDefaults,
+  ImportFormatOptions,
+  ImportProfile,
   InclusionMode,
   Institution,
   MasterCategory,
   Payee,
+  SettingsState,
   SubCategory,
   Tag,
   Transaction
@@ -25,7 +31,75 @@ import { buildDemoOnlyData, buildInitialState, MASTER_CATEGORIES } from './demoD
 import { generateId } from '../utils/id';
 import { logError, logInfo } from '../utils/logger';
 
-const STORAGE_KEY = 'sleekfinance.stage2.data';
+const STORAGE_KEY = 'sleekfinance.stage3.data';
+
+const createDefaultImportDefaults = (): ImportDefaults => ({
+  dateFormat: 'YYYY-MM-DD',
+  decimalSeparator: '.',
+  thousandsSeparator: ',',
+  signConvention: 'positive-credit'
+});
+
+const createDefaultSettings = (): SettingsState => ({
+  baseCurrency: 'GBP',
+  exchangeRates: [{ currency: 'GBP', rateToBase: 1 }],
+  lastExchangeRateUpdate: null,
+  importDefaults: createDefaultImportDefaults(),
+  importProfiles: []
+});
+
+const migrateState = (state: DataState): DataState => {
+  const mergedSettings: SettingsState = state.settings
+    ? {
+        ...createDefaultSettings(),
+        ...state.settings,
+        importDefaults: {
+          ...createDefaultImportDefaults(),
+          ...state.settings.importDefaults
+        },
+        importProfiles: state.settings.importProfiles ?? []
+      }
+    : createDefaultSettings();
+
+  const hasBaseRate = mergedSettings.exchangeRates.some(
+    (rate) => rate.currency.toUpperCase() === mergedSettings.baseCurrency.toUpperCase()
+  );
+  if (!hasBaseRate) {
+    mergedSettings.exchangeRates = [
+      ...mergedSettings.exchangeRates,
+      { currency: mergedSettings.baseCurrency, rateToBase: 1 }
+    ];
+  }
+
+  const accounts = state.accounts.map((account) => ({
+    ...account,
+    currency: account.currency ?? mergedSettings.baseCurrency
+  }));
+
+  const accountCurrency = new Map<string, CurrencyCode>(
+    accounts.map((account) => [account.id, account.currency])
+  );
+
+  const transactions = state.transactions.map((txn) => {
+    const currency = txn.currency ?? accountCurrency.get(txn.accountId) ?? mergedSettings.baseCurrency;
+    return {
+      ...txn,
+      currency,
+      nativeAmount: txn.nativeAmount ?? txn.amount,
+      nativeCurrency: txn.nativeCurrency ?? currency,
+      importBatchId: txn.importBatchId ?? null,
+      metadata: txn.metadata ?? undefined
+    };
+  });
+
+  return {
+    ...state,
+    accounts,
+    transactions,
+    importBatches: state.importBatches ?? [],
+    settings: mergedSettings
+  };
+};
 
 type CreateInstitutionInput = {
   name: string;
@@ -39,6 +113,7 @@ type CreateAccountInput = {
   institutionId: string;
   name: string;
   type: Account['type'];
+  currency: CurrencyCode;
   openingBalance: number;
   openingBalanceDate: string;
   includeInTotals: boolean;
@@ -95,6 +170,17 @@ type CreateTagInput = {
 
 type UpdateTagInput = Partial<CreateTagInput>;
 
+type SaveImportProfileInput = {
+  id?: string;
+  name: string;
+  headerFingerprint: string;
+  fieldMapping: ImportProfile['fieldMapping'];
+  format: ImportFormatOptions;
+  transforms?: Record<string, string>;
+};
+
+type CreateImportBatchInput = Omit<ImportBatch, 'id'> & { id?: string };
+
 type DataContextValue = {
   state: DataState;
   masterCategories: MasterCategory[];
@@ -127,9 +213,18 @@ type DataContextValue = {
   createTag: (input: CreateTagInput) => DataActionError | null;
   updateTag: (id: string, input: UpdateTagInput) => DataActionError | null;
   archiveTag: (id: string) => void;
-  addTransaction: (txn: Omit<Transaction, 'id' | 'isDemo'>) => void;
+  addTransaction: (txn: Omit<Transaction, 'id'>) => Transaction;
   updateTransaction: (id: string, txn: Partial<Transaction>) => void;
   archiveTransaction: (id: string) => void;
+  updateBaseCurrency: (currency: CurrencyCode) => void;
+  upsertExchangeRate: (currency: CurrencyCode, rate: number) => DataActionError | null;
+  removeExchangeRate: (currency: CurrencyCode) => void;
+  updateImportDefaults: (defaults: ImportDefaults) => void;
+  saveImportProfile: (input: SaveImportProfileInput) => ImportProfile;
+  deleteImportProfile: (id: string) => void;
+  createImportBatch: (input: CreateImportBatchInput) => ImportBatch;
+  undoLastImport: () => void;
+  clearDemoTransactionsForAccount: (accountId: string) => void;
   loadDemoData: () => void;
   clearDemoData: () => void;
 };
@@ -157,7 +252,7 @@ const loadState = (): DataState => {
       return initial;
     }
     const parsed = JSON.parse(raw) as DataState;
-    return parsed;
+    return migrateState(parsed);
   } catch (error) {
     logError('Failed to parse finance data store, rebuilding initial state.', { error });
     const initial = buildInitialState();
@@ -287,6 +382,10 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       return { title: 'Institution missing', description: 'Select a valid institution first.' };
     }
 
+    if (!input.currency.trim()) {
+      return { title: 'Currency required', description: 'Choose a currency for the account.' };
+    }
+
     const duplicate = state.accounts.find(
       (acct) =>
         acct.institutionId === input.institutionId &&
@@ -321,6 +420,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       institutionId: input.institutionId,
       name: input.name.trim(),
       type: input.type,
+      currency: input.currency.trim().toUpperCase(),
       includeInTotals: input.includeInTotals,
       includeOnlyGroupIds: [...input.includeOnlyGroupIds],
       excludeGroupId: input.excludeGroupId,
@@ -345,7 +445,15 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
                   ? [...group.accountIds, account.id]
                   : group.accountIds
             }
-      )
+      ),
+      settings: {
+        ...prev.settings,
+        exchangeRates: prev.settings.exchangeRates.some(
+          (rate) => rate.currency.toUpperCase() === account.currency
+        )
+          ? prev.settings.exchangeRates
+          : [...prev.settings.exchangeRates, { currency: account.currency, rateToBase: 1 }]
+      }
     }));
 
     logInfo('Account created', { id: account.id, institutionId: account.institutionId });
@@ -395,13 +503,15 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       };
     }
 
-    updateState((prev) => ({
-      ...prev,
-      accounts: prev.accounts.map((acct) =>
+    const currency = input.currency ? input.currency.trim().toUpperCase() : account.currency;
+
+    updateState((prev) => {
+      const updatedAccounts = prev.accounts.map((acct) =>
         acct.id === id
           ? {
               ...acct,
               ...input,
+              currency,
               name: trimmedName ?? acct.name,
               includeOnlyGroupIds,
               excludeGroupId,
@@ -410,8 +520,9 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
               currentBalance: input.currentBalance ?? acct.currentBalance
             }
           : acct
-      ),
-      accountGroups: prev.accountGroups.map((group) => {
+      );
+
+      const accountGroups = prev.accountGroups.map((group) => {
         if (group.type === 'include') {
           const shouldContain = includeOnlyGroupIds.includes(group.id);
           const hasAccount = group.accountIds.includes(id);
@@ -433,8 +544,32 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
           }
         }
         return group;
-      })
-    }));
+      });
+
+      const transactions = prev.transactions.map((txn) =>
+        txn.accountId === id
+          ? {
+              ...txn,
+              currency,
+              nativeCurrency: txn.nativeCurrency ?? currency
+            }
+          : txn
+      );
+
+      const exchangeRates = prev.settings.exchangeRates.some(
+        (rate) => rate.currency.toUpperCase() === currency
+      )
+        ? prev.settings.exchangeRates
+        : [...prev.settings.exchangeRates, { currency, rateToBase: 1 }];
+
+      return {
+        ...prev,
+        accounts: updatedAccounts,
+        accountGroups,
+        transactions,
+        settings: { ...prev.settings, exchangeRates }
+      };
+    });
     logInfo('Account updated', { id });
     return null;
   };
@@ -1075,10 +1210,15 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     logInfo('Tag archived', { id });
   };
 
-  const addTransaction = (txn: Omit<Transaction, 'id' | 'isDemo'>) => {
-    const transaction: Transaction = { ...txn, id: generateId('txn'), isDemo: false };
+  const addTransaction = (txn: Omit<Transaction, 'id'>): Transaction => {
+    const transaction: Transaction = {
+      ...txn,
+      id: generateId('txn'),
+      isDemo: txn.isDemo ?? false
+    };
     updateState((prev) => ({ ...prev, transactions: [transaction, ...prev.transactions] }));
     logInfo('Transaction created', { id: transaction.id });
+    return transaction;
   };
 
   const updateTransaction = (id: string, txn: Partial<Transaction>) => {
@@ -1099,6 +1239,185 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     logInfo('Transaction removed', { id });
   };
 
+  const updateBaseCurrency = (currency: CurrencyCode) => {
+    const normalized = currency.trim().toUpperCase();
+    if (!normalized) return;
+    updateState((prev) => ({
+      ...prev,
+      settings: {
+        ...prev.settings,
+        baseCurrency: normalized,
+        exchangeRates: prev.settings.exchangeRates.some(
+          (rate) => rate.currency.toUpperCase() === normalized
+        )
+          ? prev.settings.exchangeRates
+          : [...prev.settings.exchangeRates, { currency: normalized, rateToBase: 1 }]
+      }
+    }));
+    logInfo('Base currency updated', { currency: normalized });
+  };
+
+  const upsertExchangeRate = (currency: CurrencyCode, rate: number): DataActionError | null => {
+    const normalized = currency.trim().toUpperCase();
+    if (!normalized) {
+      return { title: 'Currency required', description: 'Enter a valid currency code.' };
+    }
+    if (!Number.isFinite(rate) || rate <= 0) {
+      return { title: 'Invalid rate', description: 'Exchange rates must be positive numbers.' };
+    }
+
+    updateState((prev) => ({
+      ...prev,
+      settings: {
+        ...prev.settings,
+        exchangeRates: prev.settings.exchangeRates.some(
+          (entry) => entry.currency.toUpperCase() === normalized
+        )
+          ? prev.settings.exchangeRates.map((entry) =>
+              entry.currency.toUpperCase() === normalized
+                ? { currency: normalized, rateToBase: rate }
+                : entry
+            )
+          : [...prev.settings.exchangeRates, { currency: normalized, rateToBase: rate }],
+        lastExchangeRateUpdate: new Date().toISOString()
+      }
+    }));
+    logInfo('Exchange rate saved', { currency: normalized, rate });
+    return null;
+  };
+
+  const removeExchangeRate = (currency: CurrencyCode) => {
+    const normalized = currency.trim().toUpperCase();
+    if (!normalized) return;
+    updateState((prev) => ({
+      ...prev,
+      settings: {
+        ...prev.settings,
+        exchangeRates: prev.settings.exchangeRates.filter(
+          (entry) =>
+            entry.currency.toUpperCase() !== normalized ||
+            normalized === prev.settings.baseCurrency
+        )
+      }
+    }));
+    logInfo('Exchange rate removed', { currency: normalized });
+  };
+
+  const updateImportDefaults = (defaults: ImportDefaults) => {
+    updateState((prev) => ({
+      ...prev,
+      settings: {
+        ...prev.settings,
+        importDefaults: { ...prev.settings.importDefaults, ...defaults }
+      }
+    }));
+    logInfo('Import defaults updated');
+  };
+
+  const saveImportProfile = (input: SaveImportProfileInput): ImportProfile => {
+    const id = input.id ?? generateId('profile');
+    const profile: ImportProfile = {
+      id,
+      name: input.name,
+      headerFingerprint: input.headerFingerprint,
+      fieldMapping: input.fieldMapping,
+      format: input.format,
+      transforms: input.transforms ?? {},
+      updatedAt: new Date().toISOString()
+    };
+
+    updateState((prev) => ({
+      ...prev,
+      settings: {
+        ...prev.settings,
+        importProfiles: prev.settings.importProfiles.some((existing) => existing.id === id)
+          ? prev.settings.importProfiles.map((existing) =>
+              existing.id === id ? profile : existing
+            )
+          : [...prev.settings.importProfiles, profile]
+      }
+    }));
+    logInfo('Import profile saved', { id, name: profile.name });
+    return profile;
+  };
+
+  const deleteImportProfile = (id: string) => {
+    updateState((prev) => ({
+      ...prev,
+      settings: {
+        ...prev.settings,
+        importProfiles: prev.settings.importProfiles.filter((profile) => profile.id !== id)
+      }
+    }));
+    logInfo('Import profile removed', { id });
+  };
+
+  const createImportBatch = (input: CreateImportBatchInput): ImportBatch => {
+    const batch: ImportBatch = { ...input, id: input.id ?? generateId('imp') };
+    updateState((prev) => ({
+      ...prev,
+      importBatches: [batch, ...prev.importBatches]
+    }));
+    logInfo('Import batch recorded', { id: batch.id, accountId: batch.accountId });
+    return batch;
+  };
+
+  const undoLastImport = () => {
+    const latest = state.importBatches[0];
+    if (!latest) return;
+    updateState((prev) => {
+      const [head, ...rest] = prev.importBatches;
+      if (!head) {
+        return prev;
+      }
+      const remainingTransactions = prev.transactions.filter(
+        (txn) => txn.importBatchId !== head.id
+      );
+      const adjustmentByAccount = new Map<string, number>();
+      prev.transactions.forEach((txn) => {
+        if (txn.importBatchId === head.id) {
+          const current = adjustmentByAccount.get(txn.accountId) ?? 0;
+          adjustmentByAccount.set(txn.accountId, current + txn.amount);
+        }
+      });
+      const accounts = prev.accounts.map((acct) => {
+        const adjustment = adjustmentByAccount.get(acct.id);
+        if (!adjustment) return acct;
+        return { ...acct, currentBalance: acct.currentBalance - adjustment };
+      });
+      return {
+        ...prev,
+        transactions: remainingTransactions,
+        accounts,
+        importBatches: rest
+      };
+    });
+    logInfo('Import batch undone', { id: latest.id });
+  };
+
+  const clearDemoTransactionsForAccount = (accountId: string) => {
+    updateState((prev) => {
+      const demoSum = prev.transactions
+        .filter((txn) => txn.accountId === accountId && txn.isDemo)
+        .reduce((sum, txn) => sum + txn.amount, 0);
+      return {
+        ...prev,
+        transactions: prev.transactions.filter(
+          (txn) => !(txn.accountId === accountId && txn.isDemo)
+        ),
+        accounts: prev.accounts.map((acct) =>
+          acct.id === accountId
+            ? { ...acct, currentBalance: acct.currentBalance - demoSum }
+            : acct
+        ),
+        importBatches: prev.importBatches.filter(
+          (batch) => !(batch.accountId === accountId && batch.isDemo)
+        )
+      };
+    });
+    logInfo('Demo transactions cleared', { accountId });
+  };
+
   const loadDemoData = () => {
     const demo = buildDemoOnlyData();
     updateState((prev) => ({
@@ -1111,7 +1430,17 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       accountGroups: [...prev.accountGroups, ...demo.accountGroups],
       payees: [...prev.payees, ...demo.payees],
       tags: [...prev.tags, ...demo.tags],
-      transactions: [...demo.transactions, ...prev.transactions]
+      transactions: [...demo.transactions, ...prev.transactions],
+      settings: {
+        ...prev.settings,
+        exchangeRates: demo.settings.exchangeRates.reduce((acc, rate) => {
+          if (!acc.some((entry) => entry.currency.toUpperCase() === rate.currency.toUpperCase())) {
+            acc.push(rate);
+          }
+          return acc;
+        }, [...prev.settings.exchangeRates]),
+        importProfiles: prev.settings.importProfiles
+      }
     }));
     logInfo('Demo data loaded');
   };
@@ -1126,7 +1455,8 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       accountGroups: prev.accountGroups.filter((group) => !group.isDemo),
       payees: prev.payees.filter((payee) => !payee.isDemo),
       tags: prev.tags.filter((tag) => !tag.isDemo),
-      transactions: prev.transactions.filter((txn) => !txn.isDemo)
+      transactions: prev.transactions.filter((txn) => !txn.isDemo),
+      importBatches: prev.importBatches.filter((batch) => !batch.isDemo)
     }));
     logInfo('Demo data cleared');
   };
@@ -1163,6 +1493,15 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       addTransaction,
       updateTransaction,
       archiveTransaction,
+      updateBaseCurrency,
+      upsertExchangeRate,
+      removeExchangeRate,
+      updateImportDefaults,
+      saveImportProfile,
+      deleteImportProfile,
+      createImportBatch,
+      undoLastImport,
+      clearDemoTransactionsForAccount,
       loadDemoData,
       clearDemoData
     }),

@@ -138,7 +138,7 @@ const GroupCard = ({ group, accounts }: GroupCardProps) => {
       <div className="chip-list">
         {groupAccounts.map((account) => (
           <span key={account.id} className="pill pill-muted">
-            {account.name} • {formatCurrency(account.currentBalance)}
+            {account.name} • {formatCurrency(account.currentBalance, account.currency)}
           </span>
         ))}
         {groupAccounts.length === 0 && <span className="muted-text">No linked accounts yet.</span>}
