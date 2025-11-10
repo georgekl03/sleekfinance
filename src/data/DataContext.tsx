@@ -120,6 +120,7 @@ type CreateAccountInput = {
   includeOnlyGroupIds: string[];
   excludeGroupId: string | null;
   notes?: string;
+  accountNumber?: string;
   currentBalance?: number;
 };
 
@@ -190,6 +191,7 @@ type DataContextValue = {
   createAccount: (input: CreateAccountInput) => DataActionError | null;
   updateAccount: (id: string, input: UpdateAccountInput) => DataActionError | null;
   archiveAccount: (id: string) => void;
+  unarchiveAccount: (id: string) => void;
   setAccountInclusion: (id: string, mode: InclusionMode) => DataActionError | null;
   updateAccountGroupsForAccount: (
     accountId: string,
@@ -428,6 +430,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       openingBalanceDate: input.openingBalanceDate,
       currentBalance: input.currentBalance ?? input.openingBalance,
       archived: false,
+      accountNumber: input.accountNumber?.trim() || undefined,
       notes: input.notes,
       isDemo: false
     };
@@ -584,6 +587,35 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       }))
     }));
     logInfo('Account archived', { id });
+  };
+
+  const unarchiveAccount = (id: string) => {
+    const account = state.accounts.find((acct) => acct.id === id);
+    if (!account) {
+      logInfo('Account restore skipped', { id });
+      return;
+    }
+    updateState((prev) => ({
+      ...prev,
+      accounts: prev.accounts.map((acct) => (acct.id === id ? { ...acct, archived: false } : acct)),
+      accountGroups: prev.accountGroups.map((group) => {
+        if (group.type === 'include') {
+          const shouldContain = account.includeOnlyGroupIds.includes(group.id);
+          const hasAccount = group.accountIds.includes(id);
+          if (shouldContain && !hasAccount) {
+            return { ...group, accountIds: [...group.accountIds, id] };
+          }
+        } else {
+          const shouldContain = account.excludeGroupId === group.id;
+          const hasAccount = group.accountIds.includes(id);
+          if (shouldContain && !hasAccount) {
+            return { ...group, accountIds: [...group.accountIds, id] };
+          }
+        }
+        return group;
+      })
+    }));
+    logInfo('Account restored', { id });
   };
 
   const setAccountInclusion = (id: string, mode: InclusionMode): DataActionError | null => {
@@ -1471,6 +1503,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       createAccount,
       updateAccount,
       archiveAccount,
+      unarchiveAccount,
       setAccountInclusion,
       updateAccountGroupsForAccount,
       createAccountGroup,

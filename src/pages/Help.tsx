@@ -5,20 +5,22 @@ const Help = () => (
   <div className="content-stack">
     <PageHeader
       title="Help"
-      description="Guides for managing accounts, groups, categories, and payees with Stage 2 rules."
+      description="Guides for managing accounts, providers, groups, categories, and payees."
     />
     <div className="content-card">
       <h3>Accounts</h3>
       <p className="muted-text">
-        Each account belongs to an institution. Toggle inclusion status to decide if it contributes to
-        overview totals. Accounts can join multiple include-only groups, but only when they are
-        included in totals.
+        Accounts now open from a compact list. Select any row to reveal the editor with Basic and
+        Advanced tabs. Use the Basic tab to rename, change provider, adjust type or currency, and
+        toggle <strong>Show in lists</strong> (archives/unarchives the account) or <strong>Count in
+        Net Worth</strong>. Advanced covers manual balance adjustments, account references, notes,
+        and collection membership.
       </p>
       <div className="help-diagram">
-        <strong>Inclusion decision tree</strong>
-        <pre>{`Account → Include in totals?  ── yes ──> Eligible for include-only groups
-                         └─ no  ──> Cannot join include-only groups`}</pre>
-        <Tooltip label="Accounts excluded from totals are hidden from dashboards unless a filter explicitly includes them." />
+        <strong>Visibility & totals</strong>
+        <pre>{`Show in lists ── off ──> account archived, hidden from selectors
+Count in Net Worth ── off ──> excluded from overview and net-worth totals`}</pre>
+        <Tooltip label="Archived accounts stay searchable in history but disappear from selectors until restored." />
       </div>
     </div>
     <div className="content-card">
