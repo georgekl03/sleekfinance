@@ -235,6 +235,154 @@ button {
   box-shadow: 0 0 0 1px var(--accent);
 }
 
+.accounts-layout {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: minmax(260px, 320px) 1fr;
+  align-items: start;
+}
+
+.accounts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.accounts-list__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.accounts-list__items {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.account-list-item {
+  display: flex;
+  width: 100%;
+  text-align: left;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.02);
+  color: inherit;
+}
+
+.account-list-item:hover,
+.account-list-item:focus-visible {
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.account-list-item.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.account-list-item__top {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+
+.account-list-item__name {
+  font-weight: 600;
+}
+
+.account-list-item__meta {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.account-status-icons {
+  display: flex;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+}
+
+.provider-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.18);
+  color: rgba(191, 219, 254, 1);
+}
+
+.accounts-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.account-editor {
+  background: var(--surface);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.account-editor__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.account-editor__tabs {
+  display: inline-flex;
+  background: rgba(148, 163, 184, 0.15);
+  padding: 0.25rem;
+  border-radius: 999px;
+  gap: 0.25rem;
+}
+
+.account-editor__tabs button {
+  border-radius: 999px;
+  padding: 0.25rem 0.9rem;
+  background: transparent;
+  color: inherit;
+}
+
+.account-editor__tabs button.active {
+  background: var(--accent);
+  color: #111827;
+}
+
+.toggle-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.toggle-row:last-of-type {
+  border-bottom: none;
+}
+
+@media (max-width: 960px) {
+  .accounts-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .accounts-list__actions {
+    justify-content: flex-start;
+  }
+}
+
 .account-card header {
   display: flex;
   flex-wrap: wrap;

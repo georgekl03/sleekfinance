@@ -65,24 +65,31 @@ combination to sign in.
 
 ## Data Model Overview
 
-### Institutions & Accounts
+### Accounts & Providers
 
-- Institutions own accounts and capture metadata such as type and optional website.
-- Account rules
+- Providers are lightweight labels (e.g., Barclays, Vanguard) used to group accounts and surface
+  import hints. Create them from the Accounts page or directly while adding a new account.
+- The Accounts page now opens with a compact list of every account. Each row shows the provider
+  badge, type, currency, current balance, and quick status icons for hidden or off-net-worth
+  accounts. Selecting a row opens the editor on the right.
+- The editor is split into **Basic** and **Advanced** tabs:
+  - **Basic** – account name, provider, type, currency, opening balance/date, plus toggles for
+    **Show in lists** (archives/unarchives the account) and **Count in Net Worth**.
+  - **Advanced** – manual balance adjustments, account reference, notes, include/exclude group
+    membership, and the archive control.
+- Account rules:
   - Opening balance date cannot be in the future.
-  - Names must be unique within an institution.
-  - Toggle inclusion to control participation in overview totals.
-  - Included accounts may join multiple include-only groups; excluded accounts cannot join any
-    include-only group.
+  - Names must be unique per provider.
+  - Accounts excluded from Net Worth cannot join include-only groups.
 
 Example:
 
 ```
-Institution: Modern Bank (type: bank)
-  ├─ Everyday Checking — included in totals, part of "Day-to-Day"
-  └─ Future Savings — included in totals
-Institution: Global Credit (type: card)
-  └─ Global Rewards Card — excluded from totals, in "Exclude: Credit Cycling"
+Provider: Modern Bank (type: bank)
+  ├─ Everyday Checking — shown in lists, counts toward Net Worth, in "Day-to-Day"
+  └─ Future Savings — shown in lists, counts toward Net Worth
+Provider: Global Credit (type: card)
+  └─ Global Rewards Card — hidden from Net Worth, in "Exclude: Credit Cycling"
 ```
 
 ### Account Groups
