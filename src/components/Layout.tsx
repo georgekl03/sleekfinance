@@ -6,6 +6,7 @@ import '../styles/layout.css';
 
 const navItems = [
   { to: '/', label: 'Overview' },
+  { to: '/net-worth', label: 'Net Worth' },
   { to: '/transactions', label: 'Transactions' },
   { to: '/accounts', label: 'Accounts' },
   { to: '/collections', label: 'Collections' },

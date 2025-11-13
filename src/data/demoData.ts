@@ -20,22 +20,27 @@ export const MASTER_CATEGORIES: MasterCategory[] = [
   {
     id: 'mc_income',
     name: 'Income',
-    description: 'Salary, reimbursements, and other inflows.'
+    description: 'Salary, grants, reimbursements, and other inflows.'
   },
   {
-    id: 'mc_essential',
-    name: 'Essentials',
-    description: 'Housing, utilities, food and transport.'
+    id: 'mc_expense',
+    name: 'Expense',
+    description: 'Everyday spending categories across housing, food, and lifestyle.'
   },
   {
-    id: 'mc_growth',
-    name: 'Growth',
-    description: 'Savings and investments for future goals.'
+    id: 'mc_transfer',
+    name: 'Transfer',
+    description: 'Internal account movements and rebalancing.'
   },
   {
-    id: 'mc_discretionary',
-    name: 'Discretionary',
-    description: 'Lifestyle and nice-to-have purchases.'
+    id: 'mc_interest',
+    name: 'Interest',
+    description: 'Interest earned on savings or investments.'
+  },
+  {
+    id: 'mc_fees',
+    name: 'Fees',
+    description: 'Bank fees and card charges.'
   }
 ];
 
@@ -73,7 +78,7 @@ const buildDemoData = (): DemoBuildResult => {
     },
     {
       id: generateId('cat'),
-      masterCategoryId: 'mc_essential',
+      masterCategoryId: 'mc_expense',
       name: 'Housing',
       archived: false,
       previousNames: [],
@@ -82,7 +87,7 @@ const buildDemoData = (): DemoBuildResult => {
     },
     {
       id: generateId('cat'),
-      masterCategoryId: 'mc_essential',
+      masterCategoryId: 'mc_expense',
       name: 'Groceries',
       archived: false,
       previousNames: [],
@@ -91,26 +96,35 @@ const buildDemoData = (): DemoBuildResult => {
     },
     {
       id: generateId('cat'),
-      masterCategoryId: 'mc_growth',
-      name: 'Transfers',
-      archived: false,
-      previousNames: [],
-      mergedIntoId: null,
-      isDemo: true
-    },
-    {
-      id: generateId('cat'),
-      masterCategoryId: 'mc_growth',
-      name: 'Savings',
-      archived: false,
-      previousNames: [],
-      mergedIntoId: null,
-      isDemo: true
-    },
-    {
-      id: generateId('cat'),
-      masterCategoryId: 'mc_discretionary',
+      masterCategoryId: 'mc_expense',
       name: 'Lifestyle',
+      archived: false,
+      previousNames: [],
+      mergedIntoId: null,
+      isDemo: true
+    },
+    {
+      id: generateId('cat'),
+      masterCategoryId: 'mc_transfer',
+      name: 'Internal Movements',
+      archived: false,
+      previousNames: [],
+      mergedIntoId: null,
+      isDemo: true
+    },
+    {
+      id: generateId('cat'),
+      masterCategoryId: 'mc_interest',
+      name: 'Savings Interest',
+      archived: false,
+      previousNames: [],
+      mergedIntoId: null,
+      isDemo: true
+    },
+    {
+      id: generateId('cat'),
+      masterCategoryId: 'mc_fees',
+      name: 'Bank Fees',
       archived: false,
       previousNames: [],
       mergedIntoId: null,
@@ -141,7 +155,7 @@ const buildDemoData = (): DemoBuildResult => {
             isDemo: true
           }
         ];
-      case 'Transfers':
+      case 'Internal Movements':
         return [
           {
             id: generateId('sub'),
@@ -195,27 +209,6 @@ const buildDemoData = (): DemoBuildResult => {
             isDemo: true
           }
         ];
-      case 'Savings':
-        return [
-          {
-            id: generateId('sub'),
-            categoryId: category.id,
-            name: 'Emergency Fund',
-            archived: false,
-            previousNames: [],
-            mergedIntoId: null,
-            isDemo: true
-          },
-          {
-            id: generateId('sub'),
-            categoryId: category.id,
-            name: 'Retirement',
-            archived: false,
-            previousNames: [],
-            mergedIntoId: null,
-            isDemo: true
-          }
-        ];
       case 'Lifestyle':
         return [
           {
@@ -231,6 +224,30 @@ const buildDemoData = (): DemoBuildResult => {
             id: generateId('sub'),
             categoryId: category.id,
             name: 'Entertainment',
+            archived: false,
+            previousNames: [],
+            mergedIntoId: null,
+            isDemo: true
+          }
+        ];
+      case 'Savings Interest':
+        return [
+          {
+            id: generateId('sub'),
+            categoryId: category.id,
+            name: 'Monthly Interest',
+            archived: false,
+            previousNames: [],
+            mergedIntoId: null,
+            isDemo: true
+          }
+        ];
+      case 'Bank Fees':
+        return [
+          {
+            id: generateId('sub'),
+            categoryId: category.id,
+            name: 'Account Fee',
             archived: false,
             previousNames: [],
             mergedIntoId: null,

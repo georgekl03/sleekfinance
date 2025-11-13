@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider, useAuth } from './auth/AuthContext';
 import Layout from './components/Layout';
 import Overview from './pages/Overview';
+import NetWorth from './pages/NetWorth';
 import Transactions from './pages/Transactions';
 import Accounts from './pages/Accounts';
 import Collections from './pages/Collections';
@@ -30,6 +31,7 @@ const AppShell = () => {
       <Layout>
         <Routes>
           <Route path="/" element={<Overview />} />
+          <Route path="/net-worth" element={<NetWorth />} />
           <Route path="/transactions" element={<Transactions />} />
           <Route path="/accounts" element={<Accounts />} />
           <Route path="/collections" element={<Collections />} />

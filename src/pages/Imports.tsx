@@ -400,6 +400,47 @@ const Imports = () => {
     () => state.subCategories.filter((subCategory) => !subCategory.archived),
     [state.subCategories]
   );
+  const exchangeRateMeta = useMemo(() => {
+    const baseKey = state.settings.baseCurrency.toUpperCase();
+    const map = new Map<string, { rate: number; source: 'base' | 'settings' | 'implied' }>();
+    state.settings.exchangeRates.forEach((entry) => {
+      const key = entry.currency.toUpperCase();
+      map.set(key, {
+        rate: entry.rateToBase,
+        source: key === baseKey ? 'base' : 'settings'
+      });
+    });
+    if (!map.has(baseKey)) {
+      map.set(baseKey, { rate: 1, source: 'base' });
+    }
+    return map;
+  }, [state.settings.baseCurrency, state.settings.exchangeRates]);
+
+  const convertToBase = useCallback(
+    (amount: number, currency: string) => {
+      const entry = exchangeRateMeta.get(currency.toUpperCase());
+      const rate = entry?.rate ?? 1;
+      return amount * rate;
+    },
+    [exchangeRateMeta]
+  );
+
+  const describeRateSource = useCallback(
+    (currency: string) => {
+      const entry = exchangeRateMeta.get(currency.toUpperCase());
+      if (!entry) {
+        return 'Defaulted to rate 1 (display only).';
+      }
+      if (entry.source === 'base') {
+        return 'Base currency – no conversion required (display only).';
+      }
+      if (entry.source === 'settings') {
+        return 'Manual rate from Settings (display only).';
+      }
+      return 'Defaulted to rate 1 (display only).';
+    },
+    [exchangeRateMeta]
+  );
   const categoryById = useMemo(() => {
     const map = new Map<string, Category>();
     categories.forEach((category) => map.set(category.id, category));
@@ -420,9 +461,25 @@ const Imports = () => {
     return map;
   }, [subCategories]);
 
+  const transferMasterIds = useMemo(() => {
+    const ids = new Set<string>();
+    state.masterCategories.forEach((master) => {
+      const normalized = master.name.toLowerCase();
+      if (normalized.includes('transfer')) {
+        ids.add(master.id);
+      }
+    });
+    return ids;
+  }, [state.masterCategories]);
   const transfersCategory = useMemo(
-    () => categories.find((category) => category.name.toLowerCase() === 'transfers'),
-    [categories]
+    () =>
+      categories.find(
+        (category) =>
+          transferMasterIds.has(category.masterCategoryId) ||
+          category.name.toLowerCase() === 'internal movements' ||
+          category.name.toLowerCase() === 'transfers'
+      ),
+    [categories, transferMasterIds]
   );
   const transfersSubCategory = useMemo(() => {
     if (!transfersCategory) return null;
@@ -2132,6 +2189,13 @@ const Imports = () => {
                                 {row.fxRate ? `(rate ${row.fxRate.toFixed(4)})` : null}
                               </div>
                             )}
+                            <div className="muted-text small">
+                              Base {formatCurrency(
+                                convertToBase(row.amount, row.accountCurrency),
+                                state.settings.baseCurrency
+                              )}{' '}
+                              · {describeRateSource(row.accountCurrency)}
+                            </div>
                           </div>
                         ) : (
                           '—'
@@ -2268,7 +2332,16 @@ const Imports = () => {
               {duplicateRows.slice(0, 5).map((row) => (
                 <li key={`dup-${row.id}`}>
                   <strong>{row.date ? formatDate(row.date) : row.dateDisplay}</strong> — {row.description}
-                  <span className="muted-text small"> {formatCurrency(row.amount ?? 0, row.accountCurrency)}</span>
+                  <span className="muted-text small">
+                    {' '}
+                    {formatCurrency(row.amount ?? 0, row.accountCurrency)} · Base{' '}
+                    {formatCurrency(
+                      convertToBase(row.amount ?? 0, row.accountCurrency),
+                      state.settings.baseCurrency
+                    )}
+                    {' '}
+                    ({describeRateSource(row.accountCurrency)})
+                  </span>
                 </li>
               ))}
               {duplicateRows.length === 0 && <li className="muted-text">No duplicates detected.</li>}
@@ -2456,24 +2529,43 @@ const Imports = () => {
           <div className="totals-card">
             <h4>Totals by currency</h4>
             {Object.keys(summary.totalsByCurrency).length > 0 ? (
-              <table>
-                <thead>
-                  <tr>
-                    <th scope="col">Currency</th>
-                    <th scope="col">Debits</th>
-                    <th scope="col">Credits</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {Object.entries(summary.totalsByCurrency).map(([currency, totals]) => (
-                    <tr key={`${currency}-summary`}>
-                      <td>{currency}</td>
-                      <td>{formatCurrency(totals.debit, currency)}</td>
-                      <td>{formatCurrency(totals.credit, currency)}</td>
+              <>
+                <table>
+                  <thead>
+                    <tr>
+                      <th scope="col">Currency</th>
+                      <th scope="col">Debits</th>
+                      <th scope="col">Debits (base)</th>
+                      <th scope="col">Credits</th>
+                      <th scope="col">Credits (base)</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {Object.entries(summary.totalsByCurrency).map(([currency, totals]) => (
+                      <tr key={`${currency}-summary`}>
+                        <td>{currency}</td>
+                        <td>{formatCurrency(totals.debit, currency)}</td>
+                        <td>
+                          {formatCurrency(
+                            convertToBase(totals.debit, currency),
+                            state.settings.baseCurrency
+                          )}
+                        </td>
+                        <td>{formatCurrency(totals.credit, currency)}</td>
+                        <td>
+                          {formatCurrency(
+                            convertToBase(totals.credit, currency),
+                            state.settings.baseCurrency
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <p className="muted-text small" style={{ marginTop: '0.5rem' }}>
+                  Base conversions are display-only and reference the manual exchange rate table in Settings.
+                </p>
+              </>
             ) : (
               <p className="muted-text">No totals were calculated.</p>
             )}
