@@ -34,6 +34,18 @@ If you prefer a POSIX shell wrapper you can still run:
 Both commands default to the Vite dev server at `http://localhost:5173`. Use any email/password
 combination to sign in.
 
+## Overview & Net Worth
+
+- **Flow filters** – A banking-style bar with All, In, Out, and Transfers instantly scopes the
+  Overview data. Selecting In or Out unlocks expandable category chips so you can drill from master
+  categories to individual sub-categories without leaving the page.
+- **Category roll-ups** – Totals cascade through the Master Category → Category → Sub-Category
+  hierarchy. Roll-ups respect renames and merges automatically, so historical transactions follow
+  their parent even after structural changes.
+- **Multi-currency display** – Both Overview and Net Worth default to the base currency (GBP unless
+  changed in Settings) and provide toggles to reveal native account balances. Base equivalents are
+  derived from the manual exchange-rate table and are always labelled as display-only conversions.
+
 ## Available Scripts
 
 | Command | Description |
@@ -105,7 +117,7 @@ Provider: Global Credit
 
 ### Category Hierarchy
 
-- Master Categories are fixed anchors (Income, Essentials, Growth, Discretionary).
+- Master Categories are fixed anchors (Income, Expense, Transfer, Interest, Fees).
 - Each master category contains categories, which contain sub-categories.
 - Categories/sub-categories can be renamed, archived, or merged. Merging preserves historical
   transactions and moves children automatically.
@@ -115,8 +127,10 @@ Income
   └─ Primary Income
      ├─ Payroll
      └─ Bonus
-Essentials
+Expense
   └─ Housing → Rent / Utilities
+Transfer
+  └─ Internal Movements → Internal Transfer
 ```
 
 ### Payees & Tags

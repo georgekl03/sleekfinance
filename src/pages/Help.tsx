@@ -8,6 +8,38 @@ const Help = () => (
       description="Guides for managing accounts, providers, collections, categories, and payees."
     />
     <div className="content-card">
+      <h3>Overview filters</h3>
+      <p className="muted-text">
+        Use the Flow bar to pivot between <strong>All</strong>, <strong>In</strong>,
+        <strong>Out</strong>, and <strong>Transfers</strong>. Selecting In or Out reveals category chips
+        that expand to sub-categories, letting you drill from a master category straight to a
+        specific merchant-level bucket. Snapshot metrics, charts, and totals update immediately with
+        every filter change.
+      </p>
+      <div className="help-diagram">
+        <strong>Category drill-down</strong>
+        <pre>{`Flow → Out
+  Category chip: Groceries
+    Sub-categories: Tesco • Aldi • Amazon Fresh`}</pre>
+        <Tooltip label="Category filters automatically include sub-categories until you narrow to a single chip." />
+      </div>
+    </div>
+    <div className="content-card">
+      <h3>Multi-currency display</h3>
+      <p className="muted-text">
+        Overview and Net Worth default to the base currency configured in Settings (GBP unless you
+        change it). Use the display toggle to reveal native account balances alongside the base
+        equivalent. All base conversions are display-only and reference the manual exchange-rate
+        table so you always know the source of each number.
+      </p>
+      <div className="help-diagram">
+        <strong>Conversion cues</strong>
+        <pre>{`Base view → uses manual rate table
+Native view → shows native + base equivalent (display only)`}</pre>
+        <Tooltip label="Each conversion call-out references the Settings table or notes that the fallback rate of 1.0 was used." />
+      </div>
+    </div>
+    <div className="content-card">
       <h3>Accounts</h3>
       <p className="muted-text">
         Accounts now open from a compact list. Select any row to reveal the editor with a primary
@@ -50,7 +82,7 @@ Count in Net Worth ── off ──> excluded from overview and net-worth total
       </p>
       <div className="help-diagram">
         <strong>Hierarchy roll-up</strong>
-        <pre>{`Master: Essentials
+        <pre>{`Master: Expense
   Category: Housing
     Sub-category: Rent
     Sub-category: Utilities`}</pre>
