@@ -103,6 +103,25 @@ Count in Net Worth ── off ──> excluded from overview and net-worth total
         <Tooltip label="Update payees when merchants rebrand to keep automation healthy." />
       </div>
     </div>
+    <div className="content-card">
+      <h3>Rules</h3>
+      <p className="muted-text">
+        Rules automate transaction clean-up without touching amounts, currencies, accounts, or dates.
+        Combine description, payee, amount, date, account, provider, category, flow, or tag checks and
+        layer actions such as setting categories, adding tags, correcting payees, marking transfers,
+        prefixing notes, or clearing the FX flag.
+      </p>
+      <div className="help-diagram">
+        <strong>Execution tips</strong>
+        <pre>{`Priority: lower numbers run first
+Conditions: match all vs match any
+Actions: first touch wins per field
+Auto-run: immediately after CSV imports
+Manual run: Transactions → “Run rules manually”
+Log: Rules page lists recent runs & action counts`}</pre>
+        <Tooltip label="Once a field is set by a rule during a run, later rules skip it—making outcomes deterministic." />
+      </div>
+    </div>
   </div>
 );
 

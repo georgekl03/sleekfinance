@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import PageHeader from '../components/PageHeader';
 import Tooltip from '../components/Tooltip';
 import { useData } from '../data/DataContext';
-import { Account } from '../data/models';
+import { Account, Transaction } from '../data/models';
 import { formatCurrency, formatDate } from '../utils/format';
 import {
   buildCategoryRollups,
@@ -178,13 +178,25 @@ const Overview = () => {
   );
 
   const resolveTransactionFlow = useCallback(
-    (
-      account: Account | undefined,
-      transactionDirection: number,
-      categoryId: string | null
-    ): FlowType => {
-      if (categoryId) {
-        const category = categoryById.get(categoryId);
+    (transaction: Transaction, account: Account | undefined): FlowType => {
+      if (transaction.flowOverride) {
+        switch (transaction.flowOverride) {
+          case 'transfer':
+            return 'transfers';
+          case 'interest':
+            return 'in';
+          case 'fees':
+            return 'out';
+          case 'in':
+            return 'in';
+          case 'out':
+            return 'out';
+          default:
+            break;
+        }
+      }
+      if (transaction.categoryId) {
+        const category = categoryById.get(transaction.categoryId);
         if (category) {
           const master = masterById.get(category.masterCategoryId);
           if (master) {
@@ -192,8 +204,8 @@ const Overview = () => {
           }
         }
       }
-      if (transactionDirection >= 0) return 'in';
-      if (transactionDirection < 0) return 'out';
+      if (transaction.amount >= 0) return 'in';
+      if (transaction.amount < 0) return 'out';
       return account?.includeInTotals ? 'in' : 'other';
     },
     [categoryById, masterById]
@@ -215,7 +227,7 @@ const Overview = () => {
         return false;
       }
       const account = accountById.get(transaction.accountId);
-      const flow = resolveTransactionFlow(account, transaction.amount, transaction.categoryId);
+      const flow = resolveTransactionFlow(transaction, account);
       if (flowFilter !== 'all' && flow !== flowFilter) {
         return false;
       }

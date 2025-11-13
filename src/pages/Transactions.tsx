@@ -2,7 +2,15 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import PageHeader from '../components/PageHeader';
 import Tooltip from '../components/Tooltip';
 import { useData } from '../data/DataContext';
-import { Account, DataActionError, Payee, Tag, Transaction } from '../data/models';
+import {
+  Account,
+  DataActionError,
+  Payee,
+  RuleActionField,
+  RuleRunPreview,
+  Tag,
+  Transaction
+} from '../data/models';
 import { formatCurrency, formatDate } from '../utils/format';
 
 const renderError = (error: DataActionError | null) =>
@@ -18,9 +26,19 @@ type TransactionRowProps = {
   payees: Payee[];
   tags: Tag[];
   baseCurrency: string;
+  selected: boolean;
+  onToggleSelect: (id: string) => void;
 };
 
-const TransactionRow = ({ transaction, accounts, payees, tags, baseCurrency }: TransactionRowProps) => {
+const TransactionRow = ({
+  transaction,
+  accounts,
+  payees,
+  tags,
+  baseCurrency,
+  selected,
+  onToggleSelect
+}: TransactionRowProps) => {
   const { updateTransaction, archiveTransaction } = useData();
   const account = accounts.find((item) => item.id === transaction.accountId);
   const payee = payees.find((item) => item.id === transaction.payeeId);
@@ -43,6 +61,14 @@ const TransactionRow = ({ transaction, accounts, payees, tags, baseCurrency }: T
 
   return (
     <tr>
+      <td>
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={() => onToggleSelect(transaction.id)}
+          aria-label="Select transaction"
+        />
+      </td>
       <td>{formatDate(transaction.date)}</td>
       <td>{account ? account.name : 'Unknown account'}</td>
       <td>{payee ? payee.name : 'Unassigned'}</td>
@@ -88,13 +114,20 @@ const TransactionRow = ({ transaction, accounts, payees, tags, baseCurrency }: T
 };
 
 const Transactions = () => {
-  const { state, addTransaction } = useData();
+  const { state, addTransaction, previewRuleRun, runRules } = useData();
   const accounts = useMemo(() => state.accounts.filter((account) => !account.archived), [state.accounts]);
   const payees = useMemo(() => state.payees.filter((payee) => !payee.archived), [state.payees]);
   const tags = useMemo(() => state.tags.filter((tag) => !tag.archived), [state.tags]);
   const collections = useMemo(() => state.accountCollections, [state.accountCollections]);
   const [selectedCollection, setSelectedCollection] = useState<string>('all');
   const [transactionError, setTransactionError] = useState<DataActionError | null>(null);
+  const [selectedTransactionIds, setSelectedTransactionIds] = useState<string[]>([]);
+  const [runPreview, setRunPreview] = useState<RuleRunPreview | null>(null);
+  const [previewContext, setPreviewContext] = useState<{ transactionIds: string[]; description: string } | null>(null);
+  const [manualStart, setManualStart] = useState('');
+  const [manualEnd, setManualEnd] = useState('');
+  const [manualAccountId, setManualAccountId] = useState<string>('all');
+  const [runMessage, setRunMessage] = useState<string | null>(null);
   const [form, setForm] = useState({
     date: new Date().toISOString().slice(0, 10),
     accountId: accounts[0]?.id ?? '',
@@ -109,6 +142,12 @@ const Transactions = () => {
       setForm((current) => ({ ...current, accountId: accounts[0].id }));
     }
   }, [accounts, form.accountId]);
+
+  useEffect(() => {
+    setSelectedTransactionIds((current) =>
+      current.filter((id) => state.transactions.some((txn) => txn.id === id))
+    );
+  }, [state.transactions]);
 
   const filteredAccounts = useMemo(() => {
     if (selectedCollection === 'all') return accounts;
@@ -126,6 +165,105 @@ const Transactions = () => {
       .filter((transaction) => relevantAccountIds.has(transaction.accountId))
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [filteredAccounts, state.transactions]);
+
+  const toggleTransactionSelection = (id: string) => {
+    setSelectedTransactionIds((current) =>
+      current.includes(id) ? current.filter((item) => item !== id) : [...current, id]
+    );
+  };
+
+  const allVisibleSelected =
+    visibleTransactions.length > 0 &&
+    visibleTransactions.every((transaction) => selectedTransactionIds.includes(transaction.id));
+
+  const toggleSelectAllVisible = () => {
+    setSelectedTransactionIds((current) => {
+      if (allVisibleSelected) {
+        const visibleIds = new Set(visibleTransactions.map((txn) => txn.id));
+        return current.filter((id) => !visibleIds.has(id));
+      }
+      const combined = new Set([...current, ...visibleTransactions.map((txn) => txn.id)]);
+      return Array.from(combined);
+    });
+  };
+
+  const handlePreviewSelected = () => {
+    if (selectedTransactionIds.length === 0) return;
+    const preview = previewRuleRun(selectedTransactionIds);
+    setRunPreview(preview);
+    setPreviewContext({
+      transactionIds: selectedTransactionIds,
+      description: `${selectedTransactionIds.length} selected transaction${selectedTransactionIds.length === 1 ? '' : 's'}`
+    });
+    setRunMessage(null);
+  };
+
+  const handlePreviewFiltered = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const startDate = manualStart ? new Date(manualStart) : null;
+    const endDate = manualEnd ? new Date(manualEnd) : null;
+    if (endDate) {
+      endDate.setHours(23, 59, 59, 999);
+    }
+    const filteredIds = state.transactions
+      .filter((transaction) => {
+        if (manualAccountId !== 'all' && transaction.accountId !== manualAccountId) {
+          return false;
+        }
+        const dateValue = new Date(transaction.date);
+        if (Number.isNaN(dateValue.getTime())) return false;
+        if (startDate && dateValue < startDate) return false;
+        if (endDate && dateValue > endDate) return false;
+        return true;
+      })
+      .map((transaction) => transaction.id);
+    const descriptionParts: string[] = [];
+    if (manualStart || manualEnd) {
+      descriptionParts.push(`${manualStart || 'any'} to ${manualEnd || 'any'}`);
+    } else {
+      descriptionParts.push('all dates');
+    }
+    if (manualAccountId !== 'all') {
+      const account = accounts.find((acct) => acct.id === manualAccountId);
+      descriptionParts.push(account ? account.name : 'selected account');
+    } else {
+      descriptionParts.push('all accounts');
+    }
+    const preview = previewRuleRun(filteredIds);
+    setRunPreview(preview);
+    setPreviewContext({
+      transactionIds: filteredIds,
+      description: `Transactions (${descriptionParts.join(', ')})`
+    });
+    setRunMessage(null);
+  };
+
+  const handleConfirmRun = () => {
+    if (!previewContext) return;
+    const logEntry = runRules(previewContext.transactionIds, 'manual', previewContext.description);
+    if (logEntry) {
+      setRunMessage(
+        `Rules ran on ${logEntry.transactionCount} transaction${logEntry.transactionCount === 1 ? '' : 's'}.`
+      );
+    }
+    setRunPreview(null);
+    setPreviewContext(null);
+    setSelectedTransactionIds([]);
+  };
+
+  const handleCancelPreview = () => {
+    setRunPreview(null);
+    setPreviewContext(null);
+  };
+
+  const actionLabels: Record<RuleActionField, string> = {
+    category: 'Set category',
+    tags: 'Add tags',
+    payee: 'Set payee',
+    memo: 'Update notes',
+    needsFx: 'Clear FX flag',
+    flow: 'Mark transfer'
+  };
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -172,6 +310,95 @@ const Transactions = () => {
         title="Transactions"
         description="Review activity, assign tags, and filter by account collections."
       />
+      <div className="content-card" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <h3>Run rules manually</h3>
+        <p className="muted-text">
+          Preview before applying. Rules never change amounts, currencies, accounts, or dates.
+        </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={handlePreviewSelected}
+              disabled={selectedTransactionIds.length === 0}
+            >
+              Preview on selected ({selectedTransactionIds.length})
+            </button>
+            <form
+              onSubmit={handlePreviewFiltered}
+              style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}
+            >
+              <label>
+                Start date
+                <input type="date" value={manualStart} onChange={(event) => setManualStart(event.target.value)} />
+              </label>
+              <label>
+                End date
+                <input type="date" value={manualEnd} onChange={(event) => setManualEnd(event.target.value)} />
+              </label>
+              <label>
+                Account
+                <select value={manualAccountId} onChange={(event) => setManualAccountId(event.target.value)}>
+                  <option value="all">All accounts</option>
+                  {accounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button type="submit" className="secondary-button">
+                Preview range
+              </button>
+            </form>
+          </div>
+          {runPreview && previewContext && (
+            <div style={{ border: '1px solid var(--border-muted)', borderRadius: '0.5rem', padding: '1rem' }}>
+              <h4 style={{ marginTop: 0 }}>Preview summary</h4>
+              <p className="muted-text" style={{ marginTop: 0 }}>
+                {previewContext.description} — {runPreview.transactionCount} transaction
+                {runPreview.transactionCount === 1 ? '' : 's'}.
+              </p>
+              {runPreview.summaries.length === 0 ? (
+                <p>No enabled rules will run for this selection.</p>
+              ) : (
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Rule</th>
+                      <th>Matches</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {runPreview.summaries.map((summary) => (
+                      <tr key={summary.ruleId}>
+                        <td>{summary.ruleName}</td>
+                        <td>{summary.matched}</td>
+                        <td>
+                          {summary.actionFields.length === 0
+                            ? 'No actions'
+                            : summary.actionFields.map((field) => actionLabels[field]).join(', ')}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.75rem' }}>
+                <button type="button" className="primary-button" onClick={handleConfirmRun}>
+                  Apply rules
+                </button>
+                <button type="button" className="secondary-button" onClick={handleCancelPreview}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+          {runMessage && <p className="muted-text">{runMessage}</p>}
+        </div>
+      </div>
       <div className="form-card">
         <h3>Filter</h3>
         <div className="chip-list">
@@ -312,6 +539,14 @@ const Transactions = () => {
           <table className="data-table">
             <thead>
               <tr>
+                <th scope="col">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={toggleSelectAllVisible}
+                    aria-label="Select all visible transactions"
+                  />
+                </th>
                 <th scope="col">Date</th>
                 <th scope="col">Account</th>
                 <th scope="col">Payee</th>
@@ -322,19 +557,21 @@ const Transactions = () => {
               </tr>
             </thead>
             <tbody>
-          {visibleTransactions.map((transaction) => (
-            <TransactionRow
-              key={transaction.id}
-              transaction={transaction}
-              accounts={accounts}
-              payees={payees}
-              tags={tags}
-              baseCurrency={state.settings.baseCurrency}
-            />
-          ))}
+              {visibleTransactions.map((transaction) => (
+                <TransactionRow
+                  key={transaction.id}
+                  transaction={transaction}
+                  accounts={accounts}
+                  payees={payees}
+                  tags={tags}
+                  baseCurrency={state.settings.baseCurrency}
+                  selected={selectedTransactionIds.includes(transaction.id)}
+                  onToggleSelect={toggleTransactionSelection}
+                />
+              ))}
               {visibleTransactions.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="muted-text">
+                  <td colSpan={8} className="muted-text">
                     No transactions for this filter.
                   </td>
                 </tr>

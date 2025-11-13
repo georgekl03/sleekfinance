@@ -7,6 +7,8 @@ import {
   ImportDefaults,
   MasterCategory,
   Payee,
+  Rule,
+  RuleRunLogEntry,
   SettingsState,
   SubCategory,
   Tag,
@@ -55,6 +57,8 @@ type DemoBuildResult = {
   tags: Tag[];
   transactions: Transaction[];
   settings: SettingsState;
+  rules: Rule[];
+  ruleLogs: RuleRunLogEntry[];
 };
 
 const addMonths = (base: Date, delta: number) => {
@@ -472,7 +476,9 @@ const buildDemoData = (): DemoBuildResult => {
     payees,
     tags,
     transactions,
-    settings
+    settings,
+    rules: [],
+    ruleLogs: []
   };
 };
 
@@ -489,6 +495,8 @@ export const buildInitialState = (): DataState => {
     tags: demo.tags,
     transactions: demo.transactions,
     importBatches: [],
+    rules: [],
+    ruleLogs: [],
     settings: demo.settings,
     lastUpdated: new Date().toISOString()
   };
