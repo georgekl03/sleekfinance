@@ -75,6 +75,25 @@ combination to sign in.
 - **Demo CSVs and quick testing** – Download staged CSV samples, load them directly into the wizard, and
   clear imported demo transactions per account.
 
+## Rules
+
+- **Purpose** – Rules automatically assign categories, sub-categories, tags, payees, flow overrides, note
+  prefixes, and FX flags based on transaction attributes. They never change transaction amounts,
+  currencies, accounts, or dates.
+- **Conditions** – Combine checks such as description text, payee name, amounts (including ranges), date
+  windows, accounts, providers, empty or specific categories, flow type, and tags. Choose whether all or
+  any conditions must match.
+- **Actions** – Apply a single set of updates in priority order: set categories/sub-categories, add tags,
+  update the payee, mark transfers, prefix notes, or clear the "needs FX" flag. Only the first action per
+  field within a rule applies, and once a field is changed during a run, later rules skip it to guarantee
+  deterministic results.
+- **Priority & scheduling** – Lower numeric priorities run first. All enabled rules execute automatically
+  after a successful CSV import. The Transactions page also provides a "Run rules manually" card to preview
+  and confirm actions for selected transactions or date/account filters.
+- **Logs & transparency** – Every run records the timestamp, mode (automatic or manual), transactions
+  scanned, matches per rule, and the action types applied. View recent runs in the Rules page log to audit
+  outcomes.
+
 ## Data Model Overview
 
 ### Accounts & Providers

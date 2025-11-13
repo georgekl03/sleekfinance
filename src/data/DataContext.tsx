@@ -20,6 +20,14 @@ import {
   InclusionMode,
   MasterCategory,
   Payee,
+  Rule,
+  RuleAction,
+  RuleCondition,
+  RuleRunLogEntry,
+  RuleRunPreview,
+  RuleRunSummary,
+  RuleActionField,
+  RuleFlowType,
   SettingsState,
   SubCategory,
   Tag,
@@ -124,7 +132,8 @@ const migrateState = (state: DataState): DataState => {
       nativeAmount: txn.nativeAmount ?? txn.amount,
       nativeCurrency: txn.nativeCurrency ?? currency,
       importBatchId: txn.importBatchId ?? null,
-      metadata: txn.metadata ?? undefined
+      metadata: txn.metadata ?? undefined,
+      flowOverride: (txn as Transaction).flowOverride ?? null
     };
   });
 
@@ -166,6 +175,8 @@ const migrateState = (state: DataState): DataState => {
     accounts,
     transactions,
     importBatches: state.importBatches ?? [],
+    rules: state.rules ?? [],
+    ruleLogs: state.ruleLogs ?? [],
     settings: mergedSettings,
     providerDirectory,
     accountCollections
@@ -288,6 +299,18 @@ type DataContextValue = {
   clearDemoTransactionsForAccount: (accountId: string) => void;
   loadDemoData: () => void;
   clearDemoData: () => void;
+  createRule: () => Rule;
+  saveRule: (rule: Rule) => void;
+  duplicateRule: (id: string) => Rule | null;
+  setRuleEnabled: (id: string, enabled: boolean) => void;
+  archiveRule: (id: string) => void;
+  restoreRule: (id: string) => void;
+  previewRuleRun: (transactionIds: string[]) => RuleRunPreview;
+  runRules: (
+    transactionIds: string[],
+    mode: 'auto' | 'manual',
+    source?: string
+  ) => RuleRunLogEntry | null;
 };
 
 const DataContext = createContext<DataContextValue | undefined>(undefined);
@@ -327,6 +350,407 @@ const withTimestamp = (updater: (state: DataState) => DataState) => (state: Data
   return { ...next, lastUpdated: new Date().toISOString() };
 };
 
+const normalise = (value: string) => value.trim().toLocaleLowerCase();
+
+const getActionField = (action: RuleAction): RuleActionField => {
+  switch (action.type) {
+    case 'set-category':
+      return 'category';
+    case 'add-tags':
+      return 'tags';
+    case 'set-payee':
+      return 'payee';
+    case 'mark-transfer':
+      return 'flow';
+    case 'prepend-memo':
+      return 'memo';
+    case 'clear-needs-fx':
+      return 'needsFx';
+    default:
+      return 'memo';
+  }
+};
+
+type RuleEvaluationContext = {
+  accountsById: Map<string, Account>;
+  payeesById: Map<string, Payee>;
+  payeesByName: Map<string, Payee>;
+  categoriesById: Map<string, Category>;
+  subCategoriesById: Map<string, SubCategory>;
+  masterById: Map<string, MasterCategory>;
+};
+
+const resolveFlowType = (
+  transaction: Transaction,
+  context: RuleEvaluationContext
+): RuleFlowType => {
+  if (transaction.flowOverride) {
+    return transaction.flowOverride;
+  }
+  if (transaction.categoryId) {
+    const category = context.categoriesById.get(transaction.categoryId);
+    if (category) {
+      const master = context.masterById.get(category.masterCategoryId);
+      if (master) {
+        const name = normalise(master.name);
+        if (name.includes('interest')) return 'interest';
+        if (name.includes('fee')) return 'fees';
+        if (name.includes('transfer')) return 'transfer';
+        if (name.includes('income') || name.includes('inflow')) return 'in';
+        if (name.includes('expense') || name.includes('spend') || name.includes('out')) return 'out';
+      }
+    }
+  }
+  if (transaction.amount >= 0) return 'in';
+  return 'out';
+};
+
+const textIncludes = (haystack: string | undefined, needle: string) => {
+  if (!needle.trim()) return false;
+  const value = haystack?.toLocaleLowerCase() ?? '';
+  const search = needle.trim().toLocaleLowerCase();
+  return value.includes(search);
+};
+
+const textStartsWith = (haystack: string | undefined, needle: string) => {
+  if (!needle.trim()) return false;
+  const value = haystack?.toLocaleLowerCase() ?? '';
+  const search = needle.trim().toLocaleLowerCase();
+  return value.startsWith(search);
+};
+
+const textEquals = (haystack: string | undefined, needle: string) => {
+  if (!needle.trim()) return false;
+  const value = haystack?.toLocaleLowerCase() ?? '';
+  const search = needle.trim().toLocaleLowerCase();
+  return value === search;
+};
+
+const conditionMatches = (
+  condition: RuleCondition,
+  transaction: Transaction,
+  context: RuleEvaluationContext
+): boolean => {
+  switch (condition.type) {
+    case 'description': {
+      const description =
+        transaction.description ?? transaction.rawDescription ?? transaction.memo ?? '';
+      if (condition.operator === 'contains') {
+        return textIncludes(description, condition.value);
+      }
+      if (condition.operator === 'startsWith') {
+        return textStartsWith(description, condition.value);
+      }
+      return textEquals(description, condition.value);
+    }
+    case 'payee': {
+      const payee = transaction.payeeId
+        ? context.payeesById.get(transaction.payeeId)?.name
+        : undefined;
+      if (condition.operator === 'contains') {
+        return textIncludes(payee, condition.value);
+      }
+      return textEquals(payee, condition.value);
+    }
+    case 'amount': {
+      const amount = transaction.amount;
+      switch (condition.operator) {
+        case 'equals':
+          return amount === condition.value;
+        case 'greaterThan':
+          return amount > condition.value;
+        case 'lessThan':
+          return amount < condition.value;
+        case 'between': {
+          if (condition.secondaryValue === undefined) return false;
+          const min = Math.min(condition.value, condition.secondaryValue);
+          const max = Math.max(condition.value, condition.secondaryValue);
+          return amount >= min && amount <= max;
+        }
+        default:
+          return false;
+      }
+    }
+    case 'dateRange': {
+      const timestamp = new Date(transaction.date).getTime();
+      if (Number.isNaN(timestamp)) return false;
+      if (condition.start) {
+        const start = new Date(condition.start).getTime();
+        if (!Number.isNaN(start) && timestamp < start) {
+          return false;
+        }
+      }
+      if (condition.end) {
+        const end = new Date(condition.end).getTime();
+        if (!Number.isNaN(end) && timestamp > end) {
+          return false;
+        }
+      }
+      return true;
+    }
+    case 'account': {
+      return condition.accountIds.includes(transaction.accountId);
+    }
+    case 'provider': {
+      const account = context.accountsById.get(transaction.accountId);
+      const provider = account?.provider ?? '';
+      return condition.providers.some(
+        (candidate) => normalise(candidate) === normalise(provider)
+      );
+    }
+    case 'category-empty': {
+      if (condition.level === 'category') {
+        return !transaction.categoryId;
+      }
+      return !transaction.subCategoryId;
+    }
+    case 'category': {
+      if (!transaction.categoryId) return false;
+      if (transaction.categoryId !== condition.categoryId) return false;
+      if (condition.subCategoryId) {
+        return transaction.subCategoryId === condition.subCategoryId;
+      }
+      return true;
+    }
+    case 'flow': {
+      return resolveFlowType(transaction, context) === condition.flow;
+    }
+    case 'tag': {
+      return transaction.tags.includes(condition.tagId);
+    }
+    default:
+      return false;
+  }
+};
+
+type ActionOutcome = {
+  applied: boolean;
+  changed: boolean;
+};
+
+const ensurePayee = (
+  name: string,
+  payeesById: Map<string, Payee>,
+  payeesByName: Map<string, Payee>,
+  pendingPayees: Payee[]
+): Payee | null => {
+  const trimmed = name.trim();
+  if (!trimmed) return null;
+  const existing = payeesByName.get(normalise(trimmed));
+  if (existing) {
+    return existing;
+  }
+  const payee: Payee = {
+    id: generateId('pay'),
+    name: trimmed,
+    defaultCategoryId: null,
+    defaultSubCategoryId: null,
+    archived: false,
+    isDemo: false
+  };
+  payeesById.set(payee.id, payee);
+  payeesByName.set(normalise(payee.name), payee);
+  pendingPayees.push(payee);
+  return payee;
+};
+
+const applyRuleAction = (
+  action: RuleAction,
+  transaction: Transaction,
+  context: RuleEvaluationContext,
+  pendingPayees: Payee[]
+): ActionOutcome => {
+  switch (action.type) {
+    case 'set-category': {
+      const subCategory =
+        action.subCategoryId ? context.subCategoriesById.get(action.subCategoryId) : null;
+      const validSubCategory =
+        subCategory && subCategory.categoryId === action.categoryId ? subCategory.id : null;
+      const nextCategoryId = action.categoryId;
+      const nextSubCategoryId = action.subCategoryId ? validSubCategory : null;
+      const changed =
+        transaction.categoryId !== nextCategoryId ||
+        (transaction.subCategoryId ?? null) !== nextSubCategoryId;
+      transaction.categoryId = nextCategoryId;
+      transaction.subCategoryId = nextSubCategoryId;
+      return { applied: true, changed };
+    }
+    case 'add-tags': {
+      if (!action.tagIds.length) {
+        return { applied: false, changed: false };
+      }
+      const current = new Set(transaction.tags);
+      action.tagIds.forEach((tagId) => current.add(tagId));
+      const next = Array.from(current);
+      const before = transaction.tags;
+      const changed =
+        before.length !== next.length || before.some((tagId, index) => tagId !== next[index]);
+      transaction.tags = next;
+      return { applied: true, changed };
+    }
+    case 'set-payee': {
+      const payee = ensurePayee(action.payeeName, context.payeesById, context.payeesByName, pendingPayees);
+      if (!payee) {
+        return { applied: false, changed: false };
+      }
+      const changed = transaction.payeeId !== payee.id;
+      transaction.payeeId = payee.id;
+      return { applied: true, changed };
+    }
+    case 'mark-transfer': {
+      const changed = transaction.flowOverride !== 'transfer';
+      transaction.flowOverride = 'transfer';
+      return { applied: true, changed };
+    }
+    case 'prepend-memo': {
+      const prefix = action.prefix.trim();
+      if (!prefix) {
+        return { applied: false, changed: false };
+      }
+      const existing = transaction.memo ?? '';
+      if (existing.startsWith(prefix)) {
+        return { applied: true, changed: false };
+      }
+      transaction.memo = existing ? `${prefix} ${existing}` : prefix;
+      return { applied: true, changed: true };
+    }
+    case 'clear-needs-fx': {
+      const previous = transaction.needsFx ?? false;
+      transaction.needsFx = false;
+      return { applied: true, changed: previous !== false };
+    }
+    default:
+      return { applied: false, changed: false };
+  }
+};
+
+const summariseFields = (fields: Set<RuleActionField>): RuleActionField[] =>
+  Array.from(fields.values()).sort();
+
+type RuleEngineResult = {
+  preview: RuleRunPreview;
+  updatedTransactions: Map<string, Transaction>;
+  pendingPayees: Payee[];
+  changedTransactionIds: Set<string>;
+};
+
+const executeRules = (
+  rules: Rule[],
+  transactions: Transaction[],
+  transactionIds: string[],
+  state: DataState
+): RuleEngineResult => {
+  const enabledRules = rules
+    .filter((rule) => rule.enabled && !rule.archived)
+    .sort((a, b) => {
+      if (a.priority !== b.priority) {
+        return a.priority - b.priority;
+      }
+      return a.name.localeCompare(b.name);
+    });
+
+  const transactionMap = new Map<string, Transaction>();
+  transactionIds.forEach((id) => {
+    const original = transactions.find((txn) => txn.id === id);
+    if (original) {
+      transactionMap.set(id, { ...original, tags: [...original.tags] });
+    }
+  });
+
+  const accountsById = new Map(state.accounts.map((account) => [account.id, account]));
+  const payeesById = new Map(state.payees.map((payee) => [payee.id, payee]));
+  const payeesByName = new Map(
+    state.payees.map((payee) => [normalise(payee.name), payee])
+  );
+  const categoriesById = new Map(state.categories.map((category) => [category.id, category]));
+  const subCategoriesById = new Map(
+    state.subCategories.map((sub) => [sub.id, sub])
+  );
+  const masterById = new Map(state.masterCategories.map((master) => [master.id, master]));
+
+  const context: RuleEvaluationContext = {
+    accountsById,
+    payeesById,
+    payeesByName,
+    categoriesById,
+    subCategoriesById,
+    masterById
+  };
+
+  const fieldLocks = new Map<string, Set<RuleActionField>>();
+  const pendingPayees: Payee[] = [];
+  const summaries: RuleRunSummary[] = [];
+  const changedTransactionIds = new Set<string>();
+
+  const orderedTransactions = transactionIds
+    .map((id) => transactionMap.get(id))
+    .filter((txn): txn is Transaction => Boolean(txn));
+
+  enabledRules.forEach((rule) => {
+    let matchedCount = 0;
+    const fieldsForRule = new Set<RuleActionField>();
+
+    orderedTransactions.forEach((transaction) => {
+      if (!transaction) return;
+      const conditions = rule.conditions ?? [];
+      const match =
+        conditions.length === 0
+          ? true
+          : rule.matchType === 'any'
+          ? conditions.some((condition) => conditionMatches(condition, transaction, context))
+          : conditions.every((condition) => conditionMatches(condition, transaction, context));
+
+      if (!match) {
+        return;
+      }
+
+      matchedCount += 1;
+
+      const localAppliedFields = new Set<RuleActionField>();
+
+      rule.actions.forEach((action) => {
+        const field = getActionField(action);
+        if (localAppliedFields.has(field)) {
+          return;
+        }
+        const lockSet = fieldLocks.get(transaction.id) ?? new Set<RuleActionField>();
+        if (lockSet.has(field)) {
+          return;
+        }
+
+        const outcome = applyRuleAction(action, transaction, context, pendingPayees);
+        if (!outcome.applied) {
+          return;
+        }
+
+        localAppliedFields.add(field);
+        lockSet.add(field);
+        fieldLocks.set(transaction.id, lockSet);
+        fieldsForRule.add(field);
+        if (outcome.changed) {
+          changedTransactionIds.add(transaction.id);
+        }
+      });
+    });
+
+    summaries.push({
+      ruleId: rule.id,
+      ruleName: rule.name,
+      matched: matchedCount,
+      actionFields: summariseFields(fieldsForRule)
+    });
+  });
+
+  return {
+    preview: {
+      transactionCount: orderedTransactions.length,
+      summaries
+    },
+    updatedTransactions: transactionMap,
+    pendingPayees,
+    changedTransactionIds
+  };
+};
 const validateOpeningBalanceDate = (iso: string): DataActionError | null => {
   const candidate = new Date(iso);
   if (Number.isNaN(candidate.getTime())) {
@@ -1090,10 +1514,169 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     logInfo('Tag archived', { id });
   };
 
+  const createRule = (): Rule => {
+    const priorities = state.rules.map((rule) => rule.priority);
+    const nextPriority = priorities.length ? Math.max(...priorities) + 10 : 10;
+    const rule: Rule = {
+      id: generateId('rule'),
+      name: `New rule ${state.rules.length + 1}`,
+      enabled: true,
+      priority: nextPriority,
+      matchType: 'all',
+      conditions: [],
+      actions: [],
+      archived: false
+    };
+    updateState((prev) => ({ ...prev, rules: [...prev.rules, rule] }));
+    logInfo('Rule created', { id: rule.id });
+    return rule;
+  };
+
+  const saveRule = (rule: Rule) => {
+    updateState((prev) => ({
+      ...prev,
+      rules: prev.rules.some((existing) => existing.id === rule.id)
+        ? prev.rules.map((existing) => (existing.id === rule.id ? { ...rule } : existing))
+        : [...prev.rules, { ...rule }]
+    }));
+    logInfo('Rule saved', { id: rule.id });
+  };
+
+  const duplicateRule = (id: string): Rule | null => {
+    const original = state.rules.find((rule) => rule.id === id);
+    if (!original) {
+      return null;
+    }
+    const priorities = state.rules.map((rule) => rule.priority);
+    const nextPriority = priorities.length ? Math.max(...priorities) + 10 : original.priority + 10;
+    const cloneConditions = original.conditions.map((condition) => ({
+      ...condition,
+      id: generateId('cond')
+    }));
+    const cloneActions = original.actions.map((action) => ({
+      ...action,
+      id: generateId('act')
+    }));
+    const duplicate: Rule = {
+      ...original,
+      id: generateId('rule'),
+      name: `${original.name} (Copy)`,
+      priority: nextPriority,
+      conditions: cloneConditions,
+      actions: cloneActions,
+      archived: false
+    };
+    updateState((prev) => ({ ...prev, rules: [...prev.rules, duplicate] }));
+    logInfo('Rule duplicated', { id: duplicate.id, sourceId: id });
+    return duplicate;
+  };
+
+  const setRuleEnabled = (id: string, enabled: boolean) => {
+    updateState((prev) => ({
+      ...prev,
+      rules: prev.rules.map((rule) =>
+        rule.id === id ? { ...rule, enabled } : rule
+      )
+    }));
+    logInfo('Rule toggled', { id, enabled });
+  };
+
+  const archiveRule = (id: string) => {
+    updateState((prev) => ({
+      ...prev,
+      rules: prev.rules.map((rule) =>
+        rule.id === id ? { ...rule, archived: true, enabled: false } : rule
+      )
+    }));
+    logInfo('Rule archived', { id });
+  };
+
+  const restoreRule = (id: string) => {
+    updateState((prev) => ({
+      ...prev,
+      rules: prev.rules.map((rule) =>
+        rule.id === id ? { ...rule, archived: false, enabled: true } : rule
+      )
+    }));
+    logInfo('Rule restored', { id });
+  };
+
+  const previewRuleRun = (transactionIds: string[]): RuleRunPreview => {
+    if (transactionIds.length === 0) {
+      return { transactionCount: 0, summaries: [] };
+    }
+    const result = executeRules(state.rules, state.transactions, transactionIds, state);
+    return result.preview;
+  };
+
+  const runRules = (
+    transactionIds: string[],
+    mode: 'auto' | 'manual',
+    source?: string
+  ): RuleRunLogEntry | null => {
+    const timestamp = new Date().toISOString();
+    if (transactionIds.length === 0) {
+      const emptyLog: RuleRunLogEntry = {
+        id: generateId('rulelog'),
+        runAt: timestamp,
+        mode,
+        source,
+        transactionCount: 0,
+        summaries: []
+      };
+      updateState((prev) => ({
+        ...prev,
+        ruleLogs: [emptyLog, ...prev.ruleLogs].slice(0, 50)
+      }));
+      logInfo('Rules executed (no transactions)', { mode, source });
+      return emptyLog;
+    }
+
+    const result = executeRules(state.rules, state.transactions, transactionIds, state);
+    const logEntry: RuleRunLogEntry = {
+      id: generateId('rulelog'),
+      runAt: timestamp,
+      mode,
+      source,
+      transactionCount: result.preview.transactionCount,
+      summaries: result.preview.summaries
+    };
+
+    updateState((prev) => {
+      const transactionSet = result.updatedTransactions;
+      const changed = result.changedTransactionIds;
+      const nextTransactions = changed.size
+        ? prev.transactions.map((txn) =>
+            transactionSet.has(txn.id) && changed.has(txn.id)
+              ? { ...transactionSet.get(txn.id)! }
+              : txn
+          )
+        : prev.transactions;
+      const nextPayees = result.pendingPayees.length
+        ? [...prev.payees, ...result.pendingPayees]
+        : prev.payees;
+      return {
+        ...prev,
+        transactions: nextTransactions,
+        payees: nextPayees,
+        ruleLogs: [logEntry, ...prev.ruleLogs].slice(0, 50)
+      };
+    });
+
+    logInfo('Rules executed', {
+      mode,
+      source,
+      transactionCount: result.preview.transactionCount
+    });
+
+    return logEntry;
+  };
+
   const addTransaction = (txn: Omit<Transaction, 'id'>): Transaction => {
     const transaction: Transaction = {
       ...txn,
       id: generateId('txn'),
+      flowOverride: txn.flowOverride ?? null,
       isDemo: txn.isDemo ?? false
     };
     updateState((prev) => ({ ...prev, transactions: [transaction, ...prev.transactions] }));
@@ -1408,7 +1991,15 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       undoLastImport,
       clearDemoTransactionsForAccount,
       loadDemoData,
-      clearDemoData
+      clearDemoData,
+      createRule,
+      saveRule,
+      duplicateRule,
+      setRuleEnabled,
+      archiveRule,
+      restoreRule,
+      previewRuleRun,
+      runRules
     }),
     [state]
   );

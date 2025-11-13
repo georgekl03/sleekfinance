@@ -81,6 +81,7 @@ export type Transaction = {
   nativeCurrency?: CurrencyCode | null;
   fxRate?: number | null;
   needsFx?: boolean;
+  flowOverride?: RuleFlowType | null;
   description?: string;
   rawDescription?: string;
   memo?: string;
@@ -190,6 +191,8 @@ export type DataState = {
   tags: Tag[];
   transactions: Transaction[];
   importBatches: ImportBatch[];
+  rules: Rule[];
+  ruleLogs: RuleRunLogEntry[];
   settings: SettingsState;
   lastUpdated: string | null;
 };
@@ -197,6 +200,165 @@ export type DataState = {
 export type HistoryEntry = {
   timestamp: string;
   message: string;
+};
+
+export type RuleMatchType = 'all' | 'any';
+
+export type RuleFlowType = 'in' | 'out' | 'transfer' | 'interest' | 'fees';
+
+export type DescriptionCondition = {
+  id: string;
+  type: 'description';
+  operator: 'contains' | 'startsWith' | 'equals';
+  value: string;
+};
+
+export type PayeeCondition = {
+  id: string;
+  type: 'payee';
+  operator: 'contains' | 'equals';
+  value: string;
+};
+
+export type AmountCondition = {
+  id: string;
+  type: 'amount';
+  operator: 'equals' | 'greaterThan' | 'lessThan' | 'between';
+  value: number;
+  secondaryValue?: number;
+};
+
+export type DateRangeCondition = {
+  id: string;
+  type: 'dateRange';
+  start?: string | null;
+  end?: string | null;
+};
+
+export type AccountCondition = {
+  id: string;
+  type: 'account';
+  accountIds: string[];
+};
+
+export type ProviderCondition = {
+  id: string;
+  type: 'provider';
+  providers: string[];
+};
+
+export type CategoryEmptyCondition = {
+  id: string;
+  type: 'category-empty';
+  level: 'category' | 'sub-category';
+};
+
+export type CategoryEqualsCondition = {
+  id: string;
+  type: 'category';
+  categoryId: string;
+  subCategoryId?: string | null;
+};
+
+export type FlowCondition = {
+  id: string;
+  type: 'flow';
+  flow: RuleFlowType;
+};
+
+export type TagCondition = {
+  id: string;
+  type: 'tag';
+  tagId: string;
+};
+
+export type RuleCondition =
+  | DescriptionCondition
+  | PayeeCondition
+  | AmountCondition
+  | DateRangeCondition
+  | AccountCondition
+  | ProviderCondition
+  | CategoryEmptyCondition
+  | CategoryEqualsCondition
+  | FlowCondition
+  | TagCondition;
+
+export type SetCategoryAction = {
+  id: string;
+  type: 'set-category';
+  categoryId: string;
+  subCategoryId?: string | null;
+};
+
+export type AddTagsAction = {
+  id: string;
+  type: 'add-tags';
+  tagIds: string[];
+};
+
+export type SetPayeeAction = {
+  id: string;
+  type: 'set-payee';
+  payeeName: string;
+};
+
+export type MarkTransferAction = {
+  id: string;
+  type: 'mark-transfer';
+};
+
+export type PrependMemoAction = {
+  id: string;
+  type: 'prepend-memo';
+  prefix: string;
+};
+
+export type ClearNeedsFxAction = {
+  id: string;
+  type: 'clear-needs-fx';
+};
+
+export type RuleAction =
+  | SetCategoryAction
+  | AddTagsAction
+  | SetPayeeAction
+  | MarkTransferAction
+  | PrependMemoAction
+  | ClearNeedsFxAction;
+
+export type Rule = {
+  id: string;
+  name: string;
+  enabled: boolean;
+  priority: number;
+  matchType: RuleMatchType;
+  conditions: RuleCondition[];
+  actions: RuleAction[];
+  archived: boolean;
+};
+
+export type RuleActionField = 'category' | 'tags' | 'payee' | 'memo' | 'needsFx' | 'flow';
+
+export type RuleRunSummary = {
+  ruleId: string;
+  ruleName: string;
+  matched: number;
+  actionFields: RuleActionField[];
+};
+
+export type RuleRunLogEntry = {
+  id: string;
+  runAt: string;
+  mode: 'auto' | 'manual';
+  source?: string;
+  transactionCount: number;
+  summaries: RuleRunSummary[];
+};
+
+export type RuleRunPreview = {
+  transactionCount: number;
+  summaries: RuleRunSummary[];
 };
 
 export type DataActionError = {

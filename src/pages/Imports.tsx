@@ -375,7 +375,8 @@ const Imports = () => {
     addTransaction,
     deleteImportProfile,
     clearDemoTransactionsForAccount,
-    undoLastImport
+    undoLastImport,
+    runRules
   } = useData();
 
   const accounts = useMemo(() => state.accounts.filter((account) => !account.archived), [state.accounts]);
@@ -1541,6 +1542,10 @@ const Imports = () => {
         ],
         isDemo: isDemoImport
       });
+
+      if (transactionIds.length > 0) {
+        runRules(transactionIds, 'auto', `Import ${batch.sourceFileName}`);
+      }
 
       setSummary(batchSummary);
       setCreatedBatch(batch);
