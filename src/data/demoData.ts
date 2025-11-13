@@ -1,11 +1,10 @@
 import {
   Account,
-  AccountGroup,
+  AccountCollection,
   Category,
   CurrencyCode,
   DataState,
   ImportDefaults,
-  Institution,
   MasterCategory,
   Payee,
   SettingsState,
@@ -44,9 +43,9 @@ type DemoBuildResult = {
   masterCategories: MasterCategory[];
   categories: Category[];
   subCategories: SubCategory[];
-  institutions: Institution[];
   accounts: Account[];
-  accountGroups: AccountGroup[];
+  providerDirectory: string[];
+  accountCollections: AccountCollection[];
   payees: Payee[];
   tags: Tag[];
   transactions: Transaction[];
@@ -243,38 +242,19 @@ const buildDemoData = (): DemoBuildResult => {
     }
   });
 
-  const institutions: Institution[] = [
-    {
-      id: generateId('inst'),
-      name: 'Modern Bank',
-      type: 'bank',
-      website: 'https://modernbank.example',
-      archived: false,
-      createdAt: today.toISOString(),
-      isDemo: true
-    },
-    {
-      id: generateId('inst'),
-      name: 'Global Credit',
-      type: 'card',
-      archived: false,
-      createdAt: today.toISOString(),
-      isDemo: true
-    }
-  ];
-
   const defaultCurrency: CurrencyCode = 'GBP';
+
+  const providerDirectory = ['Modern Bank', 'Global Credit'];
 
   const accounts: Account[] = [
     {
       id: generateId('acct'),
-      institutionId: institutions[0].id,
+      provider: providerDirectory[0],
       name: 'Everyday Checking',
       type: 'checking',
       currency: defaultCurrency,
       includeInTotals: true,
-      includeOnlyGroupIds: [],
-      excludeGroupId: null,
+      collectionIds: [],
       openingBalance: 4200,
       openingBalanceDate: addMonths(today, -6).toISOString(),
       currentBalance: 5120,
@@ -284,13 +264,12 @@ const buildDemoData = (): DemoBuildResult => {
     },
     {
       id: generateId('acct'),
-      institutionId: institutions[0].id,
+      provider: providerDirectory[0],
       name: 'Future Savings',
       type: 'savings',
       currency: defaultCurrency,
       includeInTotals: true,
-      includeOnlyGroupIds: [],
-      excludeGroupId: null,
+      collectionIds: [],
       openingBalance: 10800,
       openingBalanceDate: addMonths(today, -6).toISOString(),
       currentBalance: 12550,
@@ -299,13 +278,12 @@ const buildDemoData = (): DemoBuildResult => {
     },
     {
       id: generateId('acct'),
-      institutionId: institutions[1].id,
+      provider: providerDirectory[1],
       name: 'Global Rewards Card',
       type: 'credit',
       currency: defaultCurrency,
       includeInTotals: false,
-      includeOnlyGroupIds: [],
-      excludeGroupId: null,
+      collectionIds: [],
       openingBalance: -800,
       openingBalanceDate: addMonths(today, -6).toISOString(),
       currentBalance: -320,
@@ -315,31 +293,25 @@ const buildDemoData = (): DemoBuildResult => {
     }
   ];
 
-  const accountGroups: AccountGroup[] = [
+  const accountCollections = [
     {
-      id: generateId('grp'),
+      id: generateId('col'),
       name: 'Day-to-Day',
-      type: 'include',
-      description: 'Operational cash you want on dashboards.',
+      description: 'Operational cash used for spending dashboards.',
       color: '#2563eb',
-      accountIds: [accounts[0].id, accounts[2].id],
-      archived: false,
       isDemo: true
     },
     {
-      id: generateId('grp'),
-      name: 'Exclude: Credit Cycling',
-      type: 'exclude',
-      description: 'Short-term credit excluded from totals.',
-      color: '#dc2626',
-      accountIds: [accounts[2].id],
-      archived: false,
+      id: generateId('col'),
+      name: 'Long-term Savings',
+      description: 'Future-focused balances kept separate from day-to-day totals.',
+      color: '#059669',
       isDemo: true
     }
   ];
 
-  accounts[0].includeOnlyGroupIds.push(accountGroups[0].id);
-  accounts[2].excludeGroupId = accountGroups[1].id;
+  accounts[0].collectionIds.push(accountCollections[0].id);
+  accounts[1].collectionIds.push(accountCollections[1].id);
 
   const payees: Payee[] = [
     {
@@ -477,9 +449,9 @@ const buildDemoData = (): DemoBuildResult => {
     masterCategories,
     categories,
     subCategories,
-    institutions,
+    providerDirectory,
     accounts,
-    accountGroups,
+    accountCollections,
     payees,
     tags,
     transactions,
@@ -493,9 +465,9 @@ export const buildInitialState = (): DataState => {
     masterCategories: MASTER_CATEGORIES,
     categories: demo.categories,
     subCategories: demo.subCategories,
-    institutions: demo.institutions,
+    providerDirectory: demo.providerDirectory,
     accounts: demo.accounts,
-    accountGroups: demo.accountGroups,
+    accountCollections: demo.accountCollections,
     payees: demo.payees,
     tags: demo.tags,
     transactions: demo.transactions,

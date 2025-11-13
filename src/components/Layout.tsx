@@ -8,7 +8,7 @@ const navItems = [
   { to: '/', label: 'Overview' },
   { to: '/transactions', label: 'Transactions' },
   { to: '/accounts', label: 'Accounts' },
-  { to: '/account-groups', label: 'Account Groups' },
+  { to: '/collections', label: 'Collections' },
   { to: '/categories', label: 'Categories' },
   { to: '/payees', label: 'Payees' },
   { to: '/budgets', label: 'Budgets' },

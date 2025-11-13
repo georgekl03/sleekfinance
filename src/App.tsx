@@ -4,7 +4,7 @@ import Layout from './components/Layout';
 import Overview from './pages/Overview';
 import Transactions from './pages/Transactions';
 import Accounts from './pages/Accounts';
-import AccountGroups from './pages/AccountGroups';
+import Collections from './pages/Collections';
 import Categories from './pages/Categories';
 import Payees from './pages/Payees';
 import Budgets from './pages/Budgets';
@@ -32,7 +32,7 @@ const AppShell = () => {
           <Route path="/" element={<Overview />} />
           <Route path="/transactions" element={<Transactions />} />
           <Route path="/accounts" element={<Accounts />} />
-          <Route path="/account-groups" element={<AccountGroups />} />
+          <Route path="/collections" element={<Collections />} />
           <Route path="/categories" element={<Categories />} />
           <Route path="/payees" element={<Payees />} />
           <Route path="/budgets" element={<Budgets />} />

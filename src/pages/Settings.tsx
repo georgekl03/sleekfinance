@@ -299,7 +299,7 @@ const Settings = () => {
           <button type="button" className="primary-button" onClick={loadDemoData}>
             Load demo data
           </button>
-          <Tooltip label="Adds sample institutions, accounts, categories, and six months of transactions." />
+          <Tooltip label="Adds sample providers, accounts, collections, categories, and six months of transactions." />
           <button type="button" className="secondary-button" onClick={clearDemoData}>
             Clear demo data
           </button>

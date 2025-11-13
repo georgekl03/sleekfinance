@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import PageHeader from '../components/PageHeader';
 import Tooltip from '../components/Tooltip';
 import { useData } from '../data/DataContext';
-import { Account, AccountGroup, DataActionError, Institution } from '../data/models';
+import { Account, AccountCollection, DataActionError } from '../data/models';
 import { formatCurrency } from '../utils/format';
 
 const ACCOUNT_TYPE_OPTIONS: { label: string; value: Account['type'] }[] = [
@@ -32,12 +32,12 @@ const renderError = (error: DataActionError | null) =>
 
 type AccountListItemProps = {
   account: Account;
-  provider?: Institution;
+  providerLabel: string;
   isSelected: boolean;
   onSelect: () => void;
 };
 
-const AccountListItem = ({ account, provider, isSelected, onSelect }: AccountListItemProps) => {
+const AccountListItem = ({ account, providerLabel, isSelected, onSelect }: AccountListItemProps) => {
   return (
     <button
       type="button"
@@ -48,7 +48,7 @@ const AccountListItem = ({ account, provider, isSelected, onSelect }: AccountLis
         <div>
           <p className="account-list-item__name">{account.name}</p>
           <div className="account-list-item__meta">
-            <span className="provider-pill">{provider ? provider.name : 'No provider'}</span>
+            <span className="provider-pill">{providerLabel || 'No provider'}</span>
             <span>{TYPE_LABEL[account.type] ?? account.type}</span>
             <span>{account.currency}</span>
             <span>{formatCurrency(account.currentBalance, account.currency)}</span>
@@ -65,33 +65,27 @@ const AccountListItem = ({ account, provider, isSelected, onSelect }: AccountLis
 
 type AccountEditorProps = {
   account: Account;
-  providers: Institution[];
-  includeGroups: AccountGroup[];
-  excludeGroups: AccountGroup[];
-  activeTab: 'basic' | 'advanced';
-  onTabChange: (tab: 'basic' | 'advanced') => void;
+  providerDirectory: string[];
+  collections: AccountCollection[];
   onArchive: () => void;
   onRestore: () => void;
 };
 
 const AccountEditor = ({
   account,
-  providers,
-  includeGroups,
-  excludeGroups,
-  activeTab,
-  onTabChange,
+  providerDirectory,
+  collections,
   onArchive,
   onRestore
 }: AccountEditorProps) => {
-  const { updateAccount, setAccountInclusion, updateAccountGroupsForAccount } = useData();
+  const { updateAccount, setAccountInclusion, recordProviderName } = useData();
   const providerOptions = useMemo(
-    () => providers.slice().sort((a, b) => a.name.localeCompare(b.name)),
-    [providers]
+    () => providerDirectory.slice().sort((a, b) => a.localeCompare(b)),
+    [providerDirectory]
   );
   const [basicForm, setBasicForm] = useState({
     name: account.name,
-    institutionId: account.institutionId,
+    provider: account.provider,
     type: account.type,
     currency: account.currency,
     openingBalance: account.openingBalance.toString(),
@@ -100,7 +94,8 @@ const AccountEditor = ({
   const [advancedForm, setAdvancedForm] = useState({
     currentBalance: account.currentBalance.toString(),
     accountNumber: account.accountNumber ?? '',
-    notes: account.notes ?? ''
+    notes: account.notes ?? '',
+    collectionIds: account.collectionIds
   });
   const [basicError, setBasicError] = useState<DataActionError | null>(null);
   const [advancedError, setAdvancedError] = useState<DataActionError | null>(null);
@@ -108,7 +103,7 @@ const AccountEditor = ({
   useEffect(() => {
     setBasicForm({
       name: account.name,
-      institutionId: account.institutionId,
+      provider: account.provider,
       type: account.type,
       currency: account.currency,
       openingBalance: account.openingBalance.toString(),
@@ -117,7 +112,8 @@ const AccountEditor = ({
     setAdvancedForm({
       currentBalance: account.currentBalance.toString(),
       accountNumber: account.accountNumber ?? '',
-      notes: account.notes ?? ''
+      notes: account.notes ?? '',
+      collectionIds: account.collectionIds
     });
     setBasicError(null);
     setAdvancedError(null);
@@ -125,15 +121,13 @@ const AccountEditor = ({
 
   const handleBasicSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const parsedOpeningBalance = Number.parseFloat(basicForm.openingBalance || '0');
+    recordProviderName(basicForm.provider);
     const result = updateAccount(account.id, {
       name: basicForm.name,
-      institutionId: basicForm.institutionId,
+      provider: basicForm.provider,
       type: basicForm.type,
-      currency: basicForm.currency.trim().toUpperCase(),
-      openingBalance: Number.isNaN(parsedOpeningBalance)
-        ? account.openingBalance
-        : parsedOpeningBalance,
+      currency: basicForm.currency,
+      openingBalance: Number.parseFloat(basicForm.openingBalance || '0'),
       openingBalanceDate: basicForm.openingBalanceDate
     });
     setBasicError(result);
@@ -164,18 +158,9 @@ const AccountEditor = ({
     const result = updateAccount(account.id, {
       currentBalance: Number.isNaN(parsedBalance) ? account.currentBalance : parsedBalance,
       accountNumber: advancedForm.accountNumber.trim() ? advancedForm.accountNumber.trim() : undefined,
-      notes: advancedForm.notes ? advancedForm.notes : undefined
+      notes: advancedForm.notes ? advancedForm.notes : undefined,
+      collectionIds: advancedForm.collectionIds
     });
-    setAdvancedError(result);
-  };
-
-  const handleIncludeGroupChange = (groupIds: string[]) => {
-    const result = updateAccountGroupsForAccount(account.id, groupIds, account.excludeGroupId);
-    setAdvancedError(result);
-  };
-
-  const handleExcludeGroupChange = (groupId: string | null) => {
-    const result = updateAccountGroupsForAccount(account.id, account.includeOnlyGroupIds, groupId);
     setAdvancedError(result);
   };
 
@@ -183,171 +168,152 @@ const AccountEditor = ({
     <div className="account-editor">
       <header className="account-editor__header">
         <h3>{account.name}</h3>
-        <div className="account-editor__tabs" role="tablist">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'basic'}
-            className={activeTab === 'basic' ? 'active' : ''}
-            onClick={() => onTabChange('basic')}
-          >
-            Basic
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'advanced'}
-            className={activeTab === 'advanced' ? 'active' : ''}
-            onClick={() => onTabChange('advanced')}
-          >
-            Advanced
-          </button>
-        </div>
       </header>
 
-      {activeTab === 'basic' ? (
-        <form className="form-grid" onSubmit={handleBasicSubmit}>
-          <div className="field">
-            <label htmlFor="account-name">
-              Account name
-              <Tooltip label="Displayed across the workspace." />
-            </label>
-            <input
-              id="account-name"
-              value={basicForm.name}
-              onChange={(event) =>
-                setBasicForm((current) => ({ ...current, name: event.target.value }))
-              }
-              required
-            />
-          </div>
-          <div className="field">
-            <label htmlFor="account-provider">
-              Provider
-              <Tooltip label="Select the bank or provider for this account." />
-            </label>
-            <select
-              id="account-provider"
-              value={basicForm.institutionId}
-              onChange={(event) =>
-                setBasicForm((current) => ({ ...current, institutionId: event.target.value }))
-              }
-              required
-            >
-              <option value="">Select a provider</option>
-              {providerOptions.map((provider) => (
-                <option key={provider.id} value={provider.id}>
-                  {provider.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label htmlFor="account-type">
-              Account type
-              <Tooltip label="Choose the closest type for this account." />
-            </label>
-            <select
-              id="account-type"
-              value={basicForm.type}
-              onChange={(event) =>
-                setBasicForm((current) => ({
-                  ...current,
-                  type: event.target.value as Account['type']
-                }))
-              }
-            >
-              {ACCOUNT_TYPE_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label htmlFor="account-currency">
-              Currency
-              <Tooltip label="Native currency for this account." />
-            </label>
-            <input
-              id="account-currency"
-              value={basicForm.currency}
-              onChange={(event) =>
-                setBasicForm((current) => ({
-                  ...current,
-                  currency: event.target.value.toUpperCase()
-                }))
-              }
-              maxLength={3}
-              required
-            />
-          </div>
-          <div className="field">
-            <label htmlFor="opening-balance">
-              Opening balance
-              <Tooltip label="Starting balance for reconciliation." />
-            </label>
-            <input
-              id="opening-balance"
-              type="number"
-              value={basicForm.openingBalance}
-              onChange={(event) =>
-                setBasicForm((current) => ({
-                  ...current,
-                  openingBalance: event.target.value
-                }))
-              }
-            />
-          </div>
-          <div className="field">
-            <label htmlFor="opening-date">
-              Opening balance date
-              <Tooltip label="Must not be in the future." />
-            </label>
-            <input
-              id="opening-date"
-              type="date"
-              value={basicForm.openingBalanceDate}
-              onChange={(event) =>
-                setBasicForm((current) => ({
-                  ...current,
-                  openingBalanceDate: event.target.value
-                }))
-              }
-            />
-          </div>
-          <div className="toggle-row">
-            <label htmlFor="show-in-lists">
-              Show in lists
-              <Tooltip label="Hide or reveal this account in pickers without archiving history." />
-            </label>
-            <input
-              id="show-in-lists"
-              type="checkbox"
-              checked={!account.archived}
-              onChange={(event) => handleShowInListsToggle(event.target.checked)}
-            />
-          </div>
-          <div className="toggle-row">
-            <label htmlFor="count-in-net-worth">
-              Count in Net Worth
-              <Tooltip label="Toggle whether this account contributes to overview totals." />
-            </label>
-            <input
-              id="count-in-net-worth"
-              type="checkbox"
-              checked={account.includeInTotals}
-              onChange={(event) => handleNetWorthToggle(event.target.checked)}
-            />
-          </div>
-          <div className="form-actions">
-            <button type="submit" className="primary-button">
-              Save basic details
-            </button>
-          </div>
-          {renderError(basicError)}
-        </form>
-      ) : (
+      <form className="form-grid" onSubmit={handleBasicSubmit}>
+        <div className="field">
+          <label htmlFor="account-name">
+            Account name
+            <Tooltip label="Displayed across the workspace." />
+          </label>
+          <input
+            id="account-name"
+            value={basicForm.name}
+            onChange={(event) =>
+              setBasicForm((current) => ({ ...current, name: event.target.value }))
+            }
+            required
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="account-provider">
+            Provider
+            <Tooltip label="Select or type who holds this account." />
+          </label>
+          <input
+            id="account-provider"
+            list="provider-suggestions"
+            value={basicForm.provider}
+            onChange={(event) =>
+              setBasicForm((current) => ({ ...current, provider: event.target.value }))
+            }
+            onBlur={(event) => recordProviderName(event.target.value)}
+            placeholder="e.g. Barclays"
+            required
+          />
+          <datalist id="provider-suggestions">
+            {providerOptions.map((name) => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
+        </div>
+        <div className="field">
+          <label htmlFor="account-type">
+            Account type
+            <Tooltip label="Choose the closest type for this account." />
+          </label>
+          <select
+            id="account-type"
+            value={basicForm.type}
+            onChange={(event) =>
+              setBasicForm((current) => ({
+                ...current,
+                type: event.target.value as Account['type']
+              }))
+            }
+          >
+            {ACCOUNT_TYPE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="account-currency">
+            Currency
+            <Tooltip label="Native currency for this account." />
+          </label>
+          <input
+            id="account-currency"
+            value={basicForm.currency}
+            onChange={(event) =>
+              setBasicForm((current) => ({
+                ...current,
+                currency: event.target.value.toUpperCase()
+              }))
+            }
+            maxLength={3}
+            required
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="opening-balance">
+            Opening balance
+            <Tooltip label="Starting balance for reconciliation." />
+          </label>
+          <input
+            id="opening-balance"
+            type="number"
+            value={basicForm.openingBalance}
+            onChange={(event) =>
+              setBasicForm((current) => ({
+                ...current,
+                openingBalance: event.target.value
+              }))
+            }
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="opening-date">
+            Opening balance date
+            <Tooltip label="Must not be in the future." />
+          </label>
+          <input
+            id="opening-date"
+            type="date"
+            value={basicForm.openingBalanceDate}
+            onChange={(event) =>
+              setBasicForm((current) => ({
+                ...current,
+                openingBalanceDate: event.target.value
+              }))
+            }
+          />
+        </div>
+        <div className="toggle-row">
+          <label htmlFor="show-in-lists">
+            Show in lists
+            <Tooltip label="Hide or reveal this account in pickers without archiving history." />
+          </label>
+          <input
+            id="show-in-lists"
+            type="checkbox"
+            checked={!account.archived}
+            onChange={(event) => handleShowInListsToggle(event.target.checked)}
+          />
+        </div>
+        <div className="toggle-row">
+          <label htmlFor="count-in-net-worth">
+            Count in Net Worth
+            <Tooltip label="Toggle whether this account contributes to overview totals." />
+          </label>
+          <input
+            id="count-in-net-worth"
+            type="checkbox"
+            checked={account.includeInTotals}
+            onChange={(event) => handleNetWorthToggle(event.target.checked)}
+          />
+        </div>
+        <div className="form-actions">
+          <button type="submit" className="primary-button">
+            Save basic details
+          </button>
+        </div>
+        {renderError(basicError)}
+      </form>
+      <details className="advanced-section">
+        <summary>Advanced settings</summary>
         <form className="form-grid" onSubmit={handleAdvancedSubmit}>
           <div className="field">
             <label htmlFor="current-balance">
@@ -385,7 +351,7 @@ const AccountEditor = ({
           <div className="field full-width">
             <label htmlFor="account-notes">
               Notes
-              <Tooltip label="Store reference notes, statement reminders, or owner details." />
+              <Tooltip label="Capture context, service quirks, or reconciliation reminders." />
             </label>
             <textarea
               id="account-notes"
@@ -400,47 +366,28 @@ const AccountEditor = ({
             />
           </div>
           <div className="field">
-            <label htmlFor="include-groups">
-              Include-only groups
-              <Tooltip label="Collections that always reveal this account when active." />
+            <label htmlFor="account-collections">
+              Collections
+              <Tooltip label="Assign this account to one or more collections for filtering." />
             </label>
             <select
-              id="include-groups"
+              id="account-collections"
               multiple
-              value={account.includeOnlyGroupIds}
+              value={advancedForm.collectionIds}
               onChange={(event) =>
-                handleIncludeGroupChange(
-                  Array.from(event.target.selectedOptions, (option) => option.value)
-                )
+                setAdvancedForm((current) => ({
+                  ...current,
+                  collectionIds: Array.from(event.target.selectedOptions, (option) => option.value)
+                }))
               }
             >
-              {includeGroups.map((group) => (
-                <option key={group.id} value={group.id}>
-                  {group.name}
+              {collections.map((collection) => (
+                <option key={collection.id} value={collection.id}>
+                  {collection.name}
                 </option>
               ))}
             </select>
-            <p className="muted-text small">Hold Ctrl/Cmd to select multiple collections.</p>
-          </div>
-          <div className="field">
-            <label htmlFor="exclude-group">
-              Exclude group
-              <Tooltip label="Move the account into a single exclude collection." />
-            </label>
-            <select
-              id="exclude-group"
-              value={account.excludeGroupId ?? ''}
-              onChange={(event) =>
-                handleExcludeGroupChange(event.target.value ? event.target.value : null)
-              }
-            >
-              <option value="">None</option>
-              {excludeGroups.map((group) => (
-                <option key={group.id} value={group.id}>
-                  {group.name}
-                </option>
-              ))}
-            </select>
+            <p className="muted-text small">Hold Ctrl/Cmd to select multiple.</p>
           </div>
           <div className="form-actions">
             <button type="submit" className="primary-button">
@@ -452,60 +399,41 @@ const AccountEditor = ({
           </div>
           {renderError(advancedError)}
         </form>
-      )}
+      </details>
     </div>
   );
 };
 
-type PanelMode = 'view' | 'create-account' | 'create-provider';
+type PanelMode = 'view' | 'create-account';
 
 const Accounts = () => {
   const {
     state,
-    createInstitution,
+    recordProviderName,
     createAccount,
     archiveAccount,
     unarchiveAccount
   } = useData();
-  const providers = useMemo(() => [...state.institutions], [state.institutions]);
-  const activeProviders = useMemo(
-    () => providers.filter((provider) => !provider.archived),
-    [providers]
-  );
-  const includeGroups = useMemo(
-    () => state.accountGroups.filter((group) => group.type === 'include' && !group.archived),
-    [state.accountGroups]
-  );
-  const excludeGroups = useMemo(
-    () => state.accountGroups.filter((group) => group.type === 'exclude' && !group.archived),
-    [state.accountGroups]
-  );
+  const providerDirectory = useMemo(() => [...state.providerDirectory], [state.providerDirectory]);
+  const collections = useMemo(() => [...state.accountCollections], [state.accountCollections]);
   const accounts = useMemo(() => [...state.accounts], [state.accounts]);
 
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
   const [panelMode, setPanelMode] = useState<PanelMode>('view');
-  const [activeTab, setActiveTab] = useState<'basic' | 'advanced'>('basic');
-  const [providerForm, setProviderForm] = useState({
-    name: '',
-    type: 'bank' as Institution['type'],
-    website: ''
-  });
   const [newAccountForm, setNewAccountForm] = useState({
-    institutionId: '',
+    provider: '',
     name: '',
     type: 'checking' as Account['type'],
     currency: state.settings.baseCurrency,
     openingBalance: '0',
     openingBalanceDate: new Date().toISOString().slice(0, 10),
     includeInTotals: true,
-    includeOnlyGroupIds: [] as string[],
-    excludeGroupId: '',
+    collectionIds: [] as string[],
     accountNumber: ''
   });
-  const [providerError, setProviderError] = useState<DataActionError | null>(null);
   const [newAccountError, setNewAccountError] = useState<DataActionError | null>(null);
   const [pendingSelection, setPendingSelection] = useState<
-    { name: string; institutionId: string } | null
+    { name: string; provider: string } | null
   >(null);
 
   useEffect(() => {
@@ -513,7 +441,7 @@ const Accounts = () => {
     if (pendingSelection) {
       const match = accounts.find(
         (acct) =>
-          acct.institutionId === pendingSelection.institutionId &&
+          acct.provider.toLocaleLowerCase() === pendingSelection.provider.toLocaleLowerCase() &&
           acct.name === pendingSelection.name
       );
       if (match) {
@@ -532,60 +460,38 @@ const Accounts = () => {
   const handleSelectAccount = (accountId: string) => {
     setPanelMode('view');
     setSelectedAccountId(accountId);
-    setActiveTab('basic');
-  };
-
-  const handleProviderSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const result = createInstitution({
-      name: providerForm.name,
-      type: providerForm.type,
-      website: providerForm.website
-    });
-    setProviderError(result);
-    if (!result) {
-      setProviderForm({ name: '', type: 'bank', website: '' });
-      setPanelMode('view');
-    }
   };
 
   const handleNewAccountSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const pendingKey = {
-      name: newAccountForm.name,
-      institutionId: newAccountForm.institutionId
-    };
-    const includeOnlyGroupIds = newAccountForm.includeInTotals
-      ? newAccountForm.includeOnlyGroupIds
-      : [];
+    recordProviderName(newAccountForm.provider);
+    const parsedOpeningBalance = Number.parseFloat(newAccountForm.openingBalance || '0');
     const result = createAccount({
-      institutionId: newAccountForm.institutionId,
+      provider: newAccountForm.provider,
       name: newAccountForm.name,
       type: newAccountForm.type,
       currency: newAccountForm.currency,
-      openingBalance: Number.parseFloat(newAccountForm.openingBalance || '0'),
+      openingBalance: Number.isNaN(parsedOpeningBalance) ? 0 : parsedOpeningBalance,
       openingBalanceDate: newAccountForm.openingBalanceDate,
       includeInTotals: newAccountForm.includeInTotals,
-      includeOnlyGroupIds,
-      excludeGroupId: newAccountForm.excludeGroupId || null,
+      collectionIds: newAccountForm.collectionIds,
       accountNumber: newAccountForm.accountNumber || undefined,
       notes: undefined
     });
     setNewAccountError(result);
     if (!result) {
       setNewAccountForm({
-        institutionId: '',
+        provider: '',
         name: '',
         type: 'checking',
         currency: state.settings.baseCurrency,
         openingBalance: '0',
         openingBalanceDate: new Date().toISOString().slice(0, 10),
         includeInTotals: true,
-        includeOnlyGroupIds: [],
-        excludeGroupId: '',
+        collectionIds: [],
         accountNumber: ''
       });
-      setPendingSelection(pendingKey);
+      setPendingSelection({ name: newAccountForm.name, provider: newAccountForm.provider });
       setPanelMode('view');
     }
   };
@@ -598,16 +504,13 @@ const Accounts = () => {
     <div className="content-stack">
       <PageHeader
         title="Accounts"
-        description="Browse all accounts on the left, then adjust settings in the editor tabs."
+        description="Browse all accounts on the left, then adjust settings in the editor."
       />
       <div className="accounts-layout">
         <aside className="accounts-list">
           <div className="accounts-list__actions">
             <button type="button" className="secondary-button" onClick={() => setPanelMode('create-account')}>
               New account
-            </button>
-            <button type="button" className="secondary-button" onClick={() => setPanelMode('create-provider')}>
-              New provider
             </button>
           </div>
           <div className="accounts-list__items">
@@ -621,7 +524,7 @@ const Accounts = () => {
                 <AccountListItem
                   key={account.id}
                   account={account}
-                  provider={providers.find((provider) => provider.id === account.institutionId)}
+                  providerLabel={account.provider}
                   isSelected={panelMode === 'view' && selectedAccountId === account.id}
                   onSelect={() => handleSelectAccount(account.id)}
                 />
@@ -629,97 +532,30 @@ const Accounts = () => {
           </div>
         </aside>
         <section className="accounts-panel">
-          {panelMode === 'create-provider' ? (
-            <div className="form-card">
-              <h3>New provider</h3>
-              <form onSubmit={handleProviderSubmit} className="form-grid two-column">
-                <div className="field">
-                  <label htmlFor="provider-name">
-                    Provider name
-                    <Tooltip label="Bank, card issuer, or brokerage label." />
-                  </label>
-                  <input
-                    id="provider-name"
-                    value={providerForm.name}
-                    onChange={(event) =>
-                      setProviderForm((current) => ({ ...current, name: event.target.value }))
-                    }
-                    required
-                  />
-                </div>
-                <div className="field">
-                  <label htmlFor="provider-type">
-                    Type
-                    <Tooltip label="Used for icon hints and import defaults." />
-                  </label>
-                  <select
-                    id="provider-type"
-                    value={providerForm.type}
-                    onChange={(event) =>
-                      setProviderForm((current) => ({
-                        ...current,
-                        type: event.target.value as Institution['type']
-                      }))
-                    }
-                  >
-                    <option value="bank">Bank</option>
-                    <option value="card">Card</option>
-                    <option value="brokerage">Brokerage</option>
-                    <option value="cash">Cash</option>
-                    <option value="other">Other</option>
-                  </select>
-                </div>
-                <div className="field full-width">
-                  <label htmlFor="provider-website">
-                    Website
-                    <Tooltip label="Optional URL for quick access." />
-                  </label>
-                  <input
-                    id="provider-website"
-                    value={providerForm.website}
-                    onChange={(event) =>
-                      setProviderForm((current) => ({ ...current, website: event.target.value }))
-                    }
-                  />
-                </div>
-                <div className="form-actions">
-                  <button type="submit" className="primary-button">
-                    Create provider
-                  </button>
-                  <button type="button" className="secondary-button" onClick={() => setPanelMode('view')}>
-                    Cancel
-                  </button>
-                </div>
-                {renderError(providerError)}
-              </form>
-            </div>
-          ) : panelMode === 'create-account' ? (
+          {panelMode === 'create-account' ? (
             <div className="form-card">
               <h3>New account</h3>
               <form onSubmit={handleNewAccountSubmit} className="form-grid two-column">
                 <div className="field">
                   <label htmlFor="new-account-provider">
                     Provider
-                    <Tooltip label="Choose the provider this account belongs to." />
+                    <Tooltip label="Choose or type who holds this account." />
                   </label>
-                  <select
+                  <input
                     id="new-account-provider"
-                    value={newAccountForm.institutionId}
+                    list="provider-directory"
+                    value={newAccountForm.provider}
                     onChange={(event) =>
-                      setNewAccountForm((current) => ({
-                        ...current,
-                        institutionId: event.target.value
-                      }))
+                      setNewAccountForm((current) => ({ ...current, provider: event.target.value }))
                     }
+                    onBlur={(event) => recordProviderName(event.target.value)}
                     required
-                  >
-                    <option value="">Select a provider</option>
-                    {activeProviders.map((provider) => (
-                      <option key={provider.id} value={provider.id}>
-                        {provider.name}
-                      </option>
+                  />
+                  <datalist id="provider-directory">
+                    {providerDirectory.map((name) => (
+                      <option key={name} value={name} />
                     ))}
-                  </select>
+                  </datalist>
                 </div>
                 <div className="field">
                   <label htmlFor="new-account-name">
@@ -836,10 +672,7 @@ const Accounts = () => {
                     onChange={(event) =>
                       setNewAccountForm((current) => ({
                         ...current,
-                        includeInTotals: event.target.value === 'yes',
-                        includeOnlyGroupIds:
-                          event.target.value === 'yes' ? current.includeOnlyGroupIds : [],
-                        excludeGroupId: event.target.value === 'yes' ? current.excludeGroupId : ''
+                        includeInTotals: event.target.value === 'yes'
                       }))
                     }
                   >
@@ -848,55 +681,28 @@ const Accounts = () => {
                   </select>
                 </div>
                 <div className="field">
-                  <label htmlFor="new-account-include-groups">
-                    Include-only groups
-                    <Tooltip label="Collections that always reveal the account." />
+                  <label htmlFor="new-account-collections">
+                    Collections
+                    <Tooltip label="Add this account to any collections for filtering." />
                   </label>
                   <select
-                    id="new-account-include-groups"
+                    id="new-account-collections"
                     multiple
-                    value={newAccountForm.includeOnlyGroupIds}
+                    value={newAccountForm.collectionIds}
                     onChange={(event) =>
                       setNewAccountForm((current) => ({
                         ...current,
-                        includeOnlyGroupIds: Array.from(
-                          event.target.selectedOptions,
-                          (option) => option.value
-                        )
+                        collectionIds: Array.from(event.target.selectedOptions, (option) => option.value)
                       }))
                     }
-                    disabled={!newAccountForm.includeInTotals}
                   >
-                    {includeGroups.map((group) => (
-                      <option key={group.id} value={group.id}>
-                        {group.name}
+                    {collections.map((collection) => (
+                      <option key={collection.id} value={collection.id}>
+                        {collection.name}
                       </option>
                     ))}
                   </select>
                   <p className="muted-text small">Hold Ctrl/Cmd to select multiple.</p>
-                </div>
-                <div className="field">
-                  <label htmlFor="new-account-exclude-group">
-                    Exclude group
-                    <Tooltip label="Optional collection that hides the account from dashboards." />
-                  </label>
-                  <select
-                    id="new-account-exclude-group"
-                    value={newAccountForm.excludeGroupId}
-                    onChange={(event) =>
-                      setNewAccountForm((current) => ({
-                        ...current,
-                        excludeGroupId: event.target.value
-                      }))
-                    }
-                  >
-                    <option value="">None</option>
-                    {excludeGroups.map((group) => (
-                      <option key={group.id} value={group.id}>
-                        {group.name}
-                      </option>
-                    ))}
-                  </select>
                 </div>
                 <div className="form-actions">
                   <button type="submit" className="primary-button">
@@ -912,11 +718,8 @@ const Accounts = () => {
           ) : selectedAccount ? (
             <AccountEditor
               account={selectedAccount}
-              providers={providers}
-              includeGroups={includeGroups}
-              excludeGroups={excludeGroups}
-              activeTab={activeTab}
-              onTabChange={setActiveTab}
+              providerDirectory={providerDirectory}
+              collections={collections}
               onArchive={() => archiveAccount(selectedAccount.id)}
               onRestore={() => unarchiveAccount(selectedAccount.id)}
             />

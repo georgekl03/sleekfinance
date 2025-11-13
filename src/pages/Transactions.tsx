@@ -92,11 +92,8 @@ const Transactions = () => {
   const accounts = useMemo(() => state.accounts.filter((account) => !account.archived), [state.accounts]);
   const payees = useMemo(() => state.payees.filter((payee) => !payee.archived), [state.payees]);
   const tags = useMemo(() => state.tags.filter((tag) => !tag.archived), [state.tags]);
-  const accountGroups = useMemo(
-    () => state.accountGroups.filter((group) => !group.archived),
-    [state.accountGroups]
-  );
-  const [selectedGroup, setSelectedGroup] = useState<string>('all');
+  const collections = useMemo(() => state.accountCollections, [state.accountCollections]);
+  const [selectedCollection, setSelectedCollection] = useState<string>('all');
   const [transactionError, setTransactionError] = useState<DataActionError | null>(null);
   const [form, setForm] = useState({
     date: new Date().toISOString().slice(0, 10),
@@ -114,14 +111,14 @@ const Transactions = () => {
   }, [accounts, form.accountId]);
 
   const filteredAccounts = useMemo(() => {
-    if (selectedGroup === 'all') return accounts;
-    if (selectedGroup === 'totals') {
+    if (selectedCollection === 'all') return accounts;
+    if (selectedCollection === 'totals') {
       return accounts.filter((account) => account.includeInTotals);
     }
-    const group = accountGroups.find((item) => item.id === selectedGroup);
-    if (!group) return accounts;
-    return accounts.filter((account) => group.accountIds.includes(account.id));
-  }, [accounts, accountGroups, selectedGroup]);
+    const collection = collections.find((item) => item.id === selectedCollection);
+    if (!collection) return accounts;
+    return accounts.filter((account) => account.collectionIds.includes(collection.id));
+  }, [accounts, collections, selectedCollection]);
 
   const visibleTransactions = useMemo(() => {
     const relevantAccountIds = new Set(filteredAccounts.map((account) => account.id));
@@ -155,7 +152,8 @@ const Transactions = () => {
       subCategoryId: null,
       tags: form.tags,
       importBatchId: null,
-      metadata: undefined
+      metadata: undefined,
+      isDemo: false
     });
     setTransactionError(null);
     setForm({
@@ -172,33 +170,33 @@ const Transactions = () => {
     <div className="content-stack">
       <PageHeader
         title="Transactions"
-        description="Review activity, assign tags, and filter by account group focus chips."
+        description="Review activity, assign tags, and filter by account collections."
       />
       <div className="form-card">
         <h3>Filter</h3>
         <div className="chip-list">
           <button
             type="button"
-            className={`chip-button ${selectedGroup === 'all' ? 'active' : ''}`}
-            onClick={() => setSelectedGroup('all')}
+            className={`chip-button ${selectedCollection === 'all' ? 'active' : ''}`}
+            onClick={() => setSelectedCollection('all')}
           >
             All accounts
           </button>
           <button
             type="button"
-            className={`chip-button ${selectedGroup === 'totals' ? 'active' : ''}`}
-            onClick={() => setSelectedGroup('totals')}
+            className={`chip-button ${selectedCollection === 'totals' ? 'active' : ''}`}
+            onClick={() => setSelectedCollection('totals')}
           >
             Included in totals
           </button>
-          {accountGroups.map((group) => (
+          {collections.map((collection) => (
             <button
-              key={group.id}
+              key={collection.id}
               type="button"
-              className={`chip-button ${selectedGroup === group.id ? 'active' : ''}`}
-              onClick={() => setSelectedGroup(group.id)}
+              className={`chip-button ${selectedCollection === collection.id ? 'active' : ''}`}
+              onClick={() => setSelectedCollection(collection.id)}
             >
-              {group.name}
+              {collection.name}
             </button>
           ))}
         </div>

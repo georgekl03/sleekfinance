@@ -80,28 +80,27 @@ combination to sign in.
 - Account rules:
   - Opening balance date cannot be in the future.
   - Names must be unique per provider.
-  - Accounts excluded from Net Worth cannot join include-only groups.
+  - Collections never affect balances; they simply group accounts for filtering.
 
 Example:
 
 ```
-Provider: Modern Bank (type: bank)
+Provider: Modern Bank
   ├─ Everyday Checking — shown in lists, counts toward Net Worth, in "Day-to-Day"
-  └─ Future Savings — shown in lists, counts toward Net Worth
-Provider: Global Credit (type: card)
-  └─ Global Rewards Card — hidden from Net Worth, in "Exclude: Credit Cycling"
+  └─ Future Savings — shown in lists, counts toward Net Worth, in "Long-term Savings"
+Provider: Global Credit
+  └─ Global Rewards Card — excluded from Net Worth, in "Travel" collection
 ```
 
-### Account Groups
+### Collections
 
-- Include groups surface focus areas in Overview/Transactions.
-- Exclude groups remove temporary balances; an account cannot belong to an include and exclude group
-  simultaneously.
-- Group badges inherit a configurable colour used on chips and pills.
+- Collections surface focus areas in Overview, Transactions, and future reports.
+- Accounts can belong to many collections at once without affecting totals.
+- Collection badges inherit a configurable colour used on chips and pills.
 
 ```
-[Day-to-Day] (include) → Checking, Credit Card
-[Exclude: Credit Cycling] (exclude) → Credit Card only
+[Day-to-Day] → Everyday Checking, Global Rewards Card
+[Long-term Savings] → Future Savings
 ```
 
 ### Category Hierarchy
@@ -128,7 +127,7 @@ Essentials
 
 ### Demo Data & Logs
 
-- Load sample institutions, accounts, groups, categories, payees, tags, and six months of
+- Load sample providers, accounts, collections, categories, payees, tags, and six months of
   transactions via **Settings → Demo data controls**.
 - Clear demo data to remove only entities flagged as demo; real data remains untouched.
 - Diagnostics log entries are persisted to `localStorage` and visible in **Settings → Diagnostics
