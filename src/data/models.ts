@@ -28,26 +28,15 @@ export type SubCategory = {
   isDemo: boolean;
 };
 
-export type Institution = {
-  id: string;
-  name: string;
-  type: 'bank' | 'card' | 'brokerage' | 'cash' | 'other';
-  website?: string;
-  archived: boolean;
-  createdAt: string;
-  isDemo: boolean;
-};
-
 export type Account = {
   id: string;
-  institutionId: string;
+  provider: string;
   name: string;
   accountNumber?: string;
   type: 'checking' | 'savings' | 'credit' | 'loan' | 'investment' | 'cash';
   currency: CurrencyCode;
   includeInTotals: boolean;
-  includeOnlyGroupIds: string[];
-  excludeGroupId: string | null;
+  collectionIds: string[];
   openingBalance: number;
   openingBalanceDate: string;
   currentBalance: number;
@@ -56,16 +45,11 @@ export type Account = {
   isDemo: boolean;
 };
 
-export type AccountGroupType = 'include' | 'exclude';
-
-export type AccountGroup = {
+export type AccountCollection = {
   id: string;
   name: string;
-  type: AccountGroupType;
   description?: string;
   color: string;
-  accountIds: string[];
-  archived: boolean;
   isDemo: boolean;
 };
 
@@ -199,9 +183,9 @@ export type DataState = {
   masterCategories: MasterCategory[];
   categories: Category[];
   subCategories: SubCategory[];
-  institutions: Institution[];
   accounts: Account[];
-  accountGroups: AccountGroup[];
+  providerDirectory: string[];
+  accountCollections: AccountCollection[];
   payees: Payee[];
   tags: Tag[];
   transactions: Transaction[];

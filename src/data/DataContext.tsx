@@ -8,8 +8,7 @@ import {
 } from 'react';
 import {
   Account,
-  AccountGroup,
-  AccountGroupType,
+  AccountCollection,
   Category,
   CurrencyCode,
   DataActionError,
@@ -19,7 +18,6 @@ import {
   ImportFormatOptions,
   ImportProfile,
   InclusionMode,
-  Institution,
   MasterCategory,
   Payee,
   SettingsState,
@@ -71,14 +69,52 @@ const migrateState = (state: DataState): DataState => {
     ];
   }
 
-  const accounts = state.accounts.map((account) => ({
-    ...account,
-    currency: account.currency ?? mergedSettings.baseCurrency
-  }));
-
-  const accountCurrency = new Map<string, CurrencyCode>(
-    accounts.map((account) => [account.id, account.currency])
+  const legacyInstitutions = (state as unknown as { institutions?: { id: string; name: string }[] })
+    .institutions ?? [];
+  const institutionLookup = new Map<string, string>(
+    legacyInstitutions.map((inst) => [inst.id, inst.name])
   );
+
+  const accounts = state.accounts.map((account) => {
+    const {
+      institutionId,
+      includeOnlyGroupIds,
+      excludeGroupId,
+      collectionIds,
+      provider,
+      ...rest
+    } = account as Account & {
+      institutionId?: string;
+      includeOnlyGroupIds?: string[];
+      excludeGroupId?: string | null;
+      collectionIds?: string[];
+      provider?: string;
+    };
+
+    const resolvedProvider = (
+      provider ?? (institutionId ? institutionLookup.get(institutionId) : undefined) ?? 'Unspecified Provider'
+    ).trim();
+
+    const existingCollections = Array.isArray(collectionIds)
+      ? collectionIds
+      : Array.from(
+          new Set([
+            ...((includeOnlyGroupIds as string[]) ?? []),
+            ...((excludeGroupId ? [excludeGroupId] : []) as string[])
+          ])
+        );
+
+    const nextAccount: Account = {
+      ...(rest as Account),
+      provider: resolvedProvider || 'Unspecified Provider',
+      collectionIds: existingCollections,
+      currency: account.currency ?? mergedSettings.baseCurrency
+    };
+
+    return nextAccount;
+  });
+
+  const accountCurrency = new Map<string, CurrencyCode>(accounts.map((account) => [account.id, account.currency]));
 
   const transactions = state.transactions.map((txn) => {
     const currency = txn.currency ?? accountCurrency.get(txn.accountId) ?? mergedSettings.baseCurrency;
@@ -92,33 +128,59 @@ const migrateState = (state: DataState): DataState => {
     };
   });
 
+  const legacyCollections = (state as unknown as { accountCollections?: AccountCollection[] })
+    .accountCollections;
+  const legacyGroups = (state as unknown as { accountGroups?: AccountCollection[] }).accountGroups ?? [];
+
+  const accountCollections = Array.isArray(legacyCollections)
+    ? legacyCollections.map((collection) => ({
+        ...collection,
+        color: collection.color ?? '#2563eb',
+        description: collection.description ?? undefined
+      }))
+    : legacyGroups.map((group) => ({
+        id: group.id,
+        name: group.name,
+        description: group.description,
+        color: group.color ?? '#2563eb',
+        isDemo: (group as { isDemo?: boolean }).isDemo ?? false
+      }));
+
+  const existingDirectory = Array.isArray((state as unknown as { providerDirectory?: string[] }).providerDirectory)
+    ? ((state as unknown as { providerDirectory: string[] }).providerDirectory as string[])
+    : [];
+
+  const providerDirectory = Array.from(
+    new Map(
+      [...existingDirectory, ...accounts.map((account) => account.provider)].map((name) => [
+        name.toLocaleLowerCase(),
+        name
+      ])
+    ).values()
+  ).sort((a, b) => a.toLocaleLowerCase().localeCompare(b.toLocaleLowerCase()));
+
+  const { institutions: _institutions, accountGroups: _accountGroups, ...restState } = state as Record<string, unknown>;
+
   return {
-    ...state,
+    ...(restState as DataState),
     accounts,
     transactions,
     importBatches: state.importBatches ?? [],
-    settings: mergedSettings
+    settings: mergedSettings,
+    providerDirectory,
+    accountCollections
   };
 };
 
-type CreateInstitutionInput = {
-  name: string;
-  type: Institution['type'];
-  website?: string;
-};
-
-type UpdateInstitutionInput = Partial<CreateInstitutionInput>;
-
 type CreateAccountInput = {
-  institutionId: string;
+  provider: string;
   name: string;
   type: Account['type'];
   currency: CurrencyCode;
   openingBalance: number;
   openingBalanceDate: string;
   includeInTotals: boolean;
-  includeOnlyGroupIds: string[];
-  excludeGroupId: string | null;
+  collectionIds: string[];
   notes?: string;
   accountNumber?: string;
   currentBalance?: number;
@@ -128,15 +190,13 @@ type UpdateAccountInput = Partial<CreateAccountInput> & {
   includeInTotals?: boolean;
 };
 
-type CreateAccountGroupInput = {
+type CreateAccountCollectionInput = {
   name: string;
-  type: AccountGroupType;
   description?: string;
   color?: string;
-  accountIds: string[];
 };
 
-type UpdateAccountGroupInput = Partial<CreateAccountGroupInput>;
+type UpdateAccountCollectionInput = Partial<CreateAccountCollectionInput>;
 
 type CreateCategoryInput = {
   masterCategoryId: string;
@@ -185,22 +245,21 @@ type CreateImportBatchInput = Omit<ImportBatch, 'id'> & { id?: string };
 type DataContextValue = {
   state: DataState;
   masterCategories: MasterCategory[];
-  createInstitution: (input: CreateInstitutionInput) => DataActionError | null;
-  updateInstitution: (id: string, input: UpdateInstitutionInput) => DataActionError | null;
-  archiveInstitution: (id: string) => void;
+  recordProviderName: (name: string) => void;
   createAccount: (input: CreateAccountInput) => DataActionError | null;
   updateAccount: (id: string, input: UpdateAccountInput) => DataActionError | null;
   archiveAccount: (id: string) => void;
   unarchiveAccount: (id: string) => void;
   setAccountInclusion: (id: string, mode: InclusionMode) => DataActionError | null;
-  updateAccountGroupsForAccount: (
-    accountId: string,
-    includeOnlyGroupIds: string[],
-    excludeGroupId: string | null
+  setCollectionsForAccount: (accountId: string, collectionIds: string[]) => DataActionError | null;
+  createAccountCollection: (
+    input: CreateAccountCollectionInput
   ) => DataActionError | null;
-  createAccountGroup: (input: CreateAccountGroupInput) => DataActionError | null;
-  updateAccountGroup: (id: string, input: UpdateAccountGroupInput) => DataActionError | null;
-  archiveAccountGroup: (id: string) => void;
+  updateAccountCollection: (
+    id: string,
+    input: UpdateAccountCollectionInput
+  ) => DataActionError | null;
+  deleteAccountCollection: (id: string) => void;
   createCategory: (input: CreateCategoryInput) => DataActionError | null;
   updateCategory: (id: string, input: UpdateCategoryInput) => DataActionError | null;
   mergeCategories: (fromId: string, toId: string) => DataActionError | null;
@@ -297,91 +356,26 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     setState((prev) => withTimestamp(updater)(prev));
   };
 
-  const createInstitution = (input: CreateInstitutionInput): DataActionError | null => {
-    if (!input.name.trim()) {
-      return { title: 'Institution name required', description: 'Provide a unique name.' };
-    }
-
-    const duplicate = state.institutions.find(
-      (inst) => inst.name.toLocaleLowerCase() === input.name.trim().toLocaleLowerCase()
+  const recordProviderName = (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const exists = state.providerDirectory.some(
+      (provider) => provider.toLocaleLowerCase() === trimmed.toLocaleLowerCase()
     );
-    if (duplicate) {
-      return {
-        title: 'Duplicate institution',
-        description: 'Another institution already uses that name.'
-      };
-    }
-
-    const institution: Institution = {
-      id: generateId('inst'),
-      name: input.name.trim(),
-      type: input.type,
-      website: input.website,
-      archived: false,
-      createdAt: new Date().toISOString(),
-      isDemo: false
-    };
-
-    updateState((prev) => ({ ...prev, institutions: [...prev.institutions, institution] }));
-    logInfo('Institution created', { id: institution.id, name: institution.name });
-    return null;
-  };
-
-  const updateInstitution = (
-    id: string,
-    input: UpdateInstitutionInput
-  ): DataActionError | null => {
-    const institution = state.institutions.find((inst) => inst.id === id);
-    if (!institution) {
-      return { title: 'Institution not found', description: 'Refresh and try again.' };
-    }
-    if (input.name) {
-      const duplicate = state.institutions.find(
-        (inst) =>
-          inst.id !== id && inst.name.toLocaleLowerCase() === input.name?.trim().toLocaleLowerCase()
-      );
-      if (duplicate) {
-        return {
-          title: 'Duplicate institution',
-          description: 'Another institution already uses that name.'
-        };
-      }
-    }
-
+    if (exists) return;
     updateState((prev) => ({
       ...prev,
-      institutions: prev.institutions.map((inst) =>
-        inst.id === id
-          ? {
-              ...inst,
-              name: input.name ? input.name.trim() : inst.name,
-              type: input.type ?? inst.type,
-              website: input.website ?? inst.website
-            }
-          : inst
+      providerDirectory: [...prev.providerDirectory, trimmed].sort((a, b) =>
+        a.toLocaleLowerCase().localeCompare(b.toLocaleLowerCase())
       )
     }));
-    logInfo('Institution updated', { id });
-    return null;
-  };
-
-  const archiveInstitution = (id: string) => {
-    updateState((prev) => ({
-      ...prev,
-      institutions: prev.institutions.map((inst) =>
-        inst.id === id ? { ...inst, archived: true } : inst
-      ),
-      accounts: prev.accounts.map((acct) =>
-        acct.institutionId === id ? { ...acct, archived: true } : acct
-      )
-    }));
-    logInfo('Institution archived', { id });
+    logInfo('Provider recorded', { name: trimmed });
   };
 
   const createAccount = (input: CreateAccountInput): DataActionError | null => {
-    const institution = state.institutions.find((inst) => inst.id === input.institutionId);
-    if (!institution) {
-      return { title: 'Institution missing', description: 'Select a valid institution first.' };
+    const provider = input.provider.trim();
+    if (!provider) {
+      return { title: 'Provider required', description: 'Specify who holds this account.' };
     }
 
     if (!input.currency.trim()) {
@@ -390,42 +384,37 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
 
     const duplicate = state.accounts.find(
       (acct) =>
-        acct.institutionId === input.institutionId &&
+        acct.provider.toLocaleLowerCase() === provider.toLocaleLowerCase() &&
         acct.name.toLocaleLowerCase() === input.name.trim().toLocaleLowerCase()
     );
     if (duplicate) {
       return {
         title: 'Duplicate account',
-        description: 'Another account at this institution uses that name.'
+        description: 'Another account with this provider already uses that name.'
       };
     }
 
     const dateError = validateOpeningBalanceDate(input.openingBalanceDate);
     if (dateError) return dateError;
 
-    if (!input.includeInTotals && input.includeOnlyGroupIds.length > 0) {
+    const invalidCollections = input.collectionIds.filter(
+      (collectionId) => !state.accountCollections.some((collection) => collection.id === collectionId)
+    );
+    if (invalidCollections.length > 0) {
       return {
-        title: 'Invalid inclusion configuration',
-        description: 'Excluded accounts cannot belong to include-only groups.'
-      };
-    }
-
-    if (input.excludeGroupId && input.includeOnlyGroupIds.length > 0) {
-      return {
-        title: 'Conflicting groups',
-        description: 'Accounts cannot be in include-only and exclude groups at the same time.'
+        title: 'Unknown collection',
+        description: 'Choose from the available collections when assigning accounts.'
       };
     }
 
     const account: Account = {
       id: generateId('acct'),
-      institutionId: input.institutionId,
+      provider,
       name: input.name.trim(),
       type: input.type,
       currency: input.currency.trim().toUpperCase(),
       includeInTotals: input.includeInTotals,
-      includeOnlyGroupIds: [...input.includeOnlyGroupIds],
-      excludeGroupId: input.excludeGroupId,
+      collectionIds: Array.from(new Set(input.collectionIds)),
       openingBalance: input.openingBalance,
       openingBalanceDate: input.openingBalanceDate,
       currentBalance: input.currentBalance ?? input.openingBalance,
@@ -438,17 +427,13 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     updateState((prev) => ({
       ...prev,
       accounts: [...prev.accounts, account],
-      accountGroups: prev.accountGroups.map((group) =>
-        group.accountIds.includes(account.id)
-          ? group
-          : {
-              ...group,
-              accountIds:
-                input.excludeGroupId === group.id || input.includeOnlyGroupIds.includes(group.id)
-                  ? [...group.accountIds, account.id]
-                  : group.accountIds
-            }
-      ),
+      providerDirectory: prev.providerDirectory.some(
+        (existing) => existing.toLocaleLowerCase() === provider.toLocaleLowerCase()
+      )
+        ? prev.providerDirectory
+        : [...prev.providerDirectory, provider].sort((a, b) =>
+            a.toLocaleLowerCase().localeCompare(b.toLocaleLowerCase())
+          ),
       settings: {
         ...prev.settings,
         exchangeRates: prev.settings.exchangeRates.some(
@@ -459,7 +444,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       }
     }));
 
-    logInfo('Account created', { id: account.id, institutionId: account.institutionId });
+    logInfo('Account created', { id: account.id, provider: account.provider });
     return null;
   };
 
@@ -470,16 +455,24 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     }
 
     const trimmedName = input.name?.trim();
-    if (trimmedName) {
-      const duplicate = state.accounts.find(
-        (acct) =>
-          acct.id !== id &&
-          acct.institutionId === (input.institutionId ?? account.institutionId) &&
-          acct.name.toLocaleLowerCase() === trimmedName.toLocaleLowerCase()
-      );
-      if (duplicate) {
-        return { title: 'Duplicate account', description: 'Pick a unique name for this institution.' };
-      }
+    const nextName = trimmedName ?? account.name;
+
+    const provider = input.provider !== undefined ? input.provider.trim() : account.provider;
+    if (!provider) {
+      return { title: 'Provider required', description: 'Specify who holds this account.' };
+    }
+
+    const duplicate = state.accounts.find(
+      (acct) =>
+        acct.id !== id &&
+        acct.provider.toLocaleLowerCase() === provider.toLocaleLowerCase() &&
+        acct.name.toLocaleLowerCase() === nextName.toLocaleLowerCase()
+    );
+    if (duplicate) {
+      return {
+        title: 'Duplicate account',
+        description: 'Another account with this provider already uses that name.'
+      };
     }
 
     if (input.openingBalanceDate) {
@@ -487,67 +480,62 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       if (dateError) return dateError;
     }
 
-    const includeOnlyGroupIds = input.includeOnlyGroupIds ?? account.includeOnlyGroupIds;
-    const excludeGroupId =
-      input.excludeGroupId !== undefined ? input.excludeGroupId : account.excludeGroupId;
-    const includeInTotals = input.includeInTotals ?? account.includeInTotals;
-
-    if (!includeInTotals && includeOnlyGroupIds.length > 0) {
-      return {
-        title: 'Invalid inclusion configuration',
-        description: 'Excluded accounts cannot belong to include-only groups.'
-      };
-    }
-
-    if (excludeGroupId && includeOnlyGroupIds.length > 0) {
-      return {
-        title: 'Conflicting groups',
-        description: 'Accounts cannot be in include-only and exclude groups simultaneously.'
-      };
+    if (input.collectionIds) {
+      const invalid = input.collectionIds.filter(
+        (collectionId) =>
+          !state.accountCollections.some((collection) => collection.id === collectionId)
+      );
+      if (invalid.length > 0) {
+        return {
+          title: 'Unknown collection',
+          description: 'Choose from the available collections when assigning accounts.'
+        };
+      }
     }
 
     const currency = input.currency ? input.currency.trim().toUpperCase() : account.currency;
+    const includeInTotals = input.includeInTotals ?? account.includeInTotals;
+    const nextCollections = input.collectionIds
+      ? Array.from(new Set(input.collectionIds))
+      : account.collectionIds.filter((collectionId) =>
+          state.accountCollections.some((collection) => collection.id === collectionId)
+        );
+
+    const nextAccountNumber =
+      input.accountNumber !== undefined
+        ? input.accountNumber.trim() || undefined
+        : account.accountNumber;
+
+    const nextNotes = input.notes !== undefined ? input.notes || undefined : account.notes;
+
+    const nextOpeningBalance =
+      input.openingBalance !== undefined ? input.openingBalance : account.openingBalance;
+
+    const nextCurrentBalance =
+      input.currentBalance !== undefined ? input.currentBalance : account.currentBalance;
+
+    const nextOpeningBalanceDate =
+      input.openingBalanceDate ?? account.openingBalanceDate;
 
     updateState((prev) => {
       const updatedAccounts = prev.accounts.map((acct) =>
         acct.id === id
           ? {
               ...acct,
-              ...input,
+              provider,
+              name: nextName,
+              type: input.type ?? acct.type,
               currency,
-              name: trimmedName ?? acct.name,
-              includeOnlyGroupIds,
-              excludeGroupId,
               includeInTotals,
-              openingBalanceDate: input.openingBalanceDate ?? acct.openingBalanceDate,
-              currentBalance: input.currentBalance ?? acct.currentBalance
+              collectionIds: nextCollections,
+              openingBalance: nextOpeningBalance,
+              openingBalanceDate: nextOpeningBalanceDate,
+              currentBalance: nextCurrentBalance,
+              accountNumber: nextAccountNumber,
+              notes: nextNotes
             }
           : acct
       );
-
-      const accountGroups = prev.accountGroups.map((group) => {
-        if (group.type === 'include') {
-          const shouldContain = includeOnlyGroupIds.includes(group.id);
-          const hasAccount = group.accountIds.includes(id);
-          if (shouldContain && !hasAccount) {
-            return { ...group, accountIds: [...group.accountIds, id] };
-          }
-          if (!shouldContain && hasAccount) {
-            return { ...group, accountIds: group.accountIds.filter((acctId) => acctId !== id) };
-          }
-        }
-        if (group.type === 'exclude') {
-          const shouldContain = excludeGroupId === group.id;
-          const hasAccount = group.accountIds.includes(id);
-          if (shouldContain && !hasAccount) {
-            return { ...group, accountIds: [...group.accountIds, id] };
-          }
-          if (!shouldContain && hasAccount) {
-            return { ...group, accountIds: group.accountIds.filter((acctId) => acctId !== id) };
-          }
-        }
-        return group;
-      });
 
       const transactions = prev.transactions.map((txn) =>
         txn.accountId === id
@@ -565,11 +553,19 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         ? prev.settings.exchangeRates
         : [...prev.settings.exchangeRates, { currency, rateToBase: 1 }];
 
+      const providerDirectory = prev.providerDirectory.some(
+        (existing) => existing.toLocaleLowerCase() === provider.toLocaleLowerCase()
+      )
+        ? prev.providerDirectory
+        : [...prev.providerDirectory, provider].sort((a, b) =>
+            a.toLocaleLowerCase().localeCompare(b.toLocaleLowerCase())
+          );
+
       return {
         ...prev,
         accounts: updatedAccounts,
-        accountGroups,
         transactions,
+        providerDirectory,
         settings: { ...prev.settings, exchangeRates }
       };
     });
@@ -580,11 +576,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
   const archiveAccount = (id: string) => {
     updateState((prev) => ({
       ...prev,
-      accounts: prev.accounts.map((acct) => (acct.id === id ? { ...acct, archived: true } : acct)),
-      accountGroups: prev.accountGroups.map((group) => ({
-        ...group,
-        accountIds: group.accountIds.filter((acctId) => acctId !== id)
-      }))
+      accounts: prev.accounts.map((acct) => (acct.id === id ? { ...acct, archived: true } : acct))
     }));
     logInfo('Account archived', { id });
   };
@@ -597,23 +589,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     }
     updateState((prev) => ({
       ...prev,
-      accounts: prev.accounts.map((acct) => (acct.id === id ? { ...acct, archived: false } : acct)),
-      accountGroups: prev.accountGroups.map((group) => {
-        if (group.type === 'include') {
-          const shouldContain = account.includeOnlyGroupIds.includes(group.id);
-          const hasAccount = group.accountIds.includes(id);
-          if (shouldContain && !hasAccount) {
-            return { ...group, accountIds: [...group.accountIds, id] };
-          }
-        } else {
-          const shouldContain = account.excludeGroupId === group.id;
-          const hasAccount = group.accountIds.includes(id);
-          if (shouldContain && !hasAccount) {
-            return { ...group, accountIds: [...group.accountIds, id] };
-          }
-        }
-        return group;
-      })
+      accounts: prev.accounts.map((acct) => (acct.id === id ? { ...acct, archived: false } : acct))
     }));
     logInfo('Account restored', { id });
   };
@@ -622,12 +598,6 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     const account = state.accounts.find((acct) => acct.id === id);
     if (!account) {
       return { title: 'Account missing', description: 'Select a valid account.' };
-    }
-    if (mode === 'excluded' && account.includeOnlyGroupIds.length > 0) {
-      return {
-        title: 'Cannot exclude',
-        description: 'Remove the account from include-only groups before excluding totals.'
-      };
     }
     updateState((prev) => ({
       ...prev,
@@ -639,25 +609,23 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     return null;
   };
 
-  const updateAccountGroupsForAccount = (
+  const setCollectionsForAccount = (
     accountId: string,
-    includeOnlyGroupIds: string[],
-    excludeGroupId: string | null
+    collectionIds: string[]
   ): DataActionError | null => {
     const account = state.accounts.find((acct) => acct.id === accountId);
     if (!account) {
       return { title: 'Account missing', description: 'Select a valid account first.' };
     }
-    if (!account.includeInTotals && includeOnlyGroupIds.length > 0) {
+
+    const invalid = collectionIds.filter(
+      (collectionId) =>
+        !state.accountCollections.some((collection) => collection.id === collectionId)
+    );
+    if (invalid.length > 0) {
       return {
-        title: 'Invalid configuration',
-        description: 'Excluded accounts cannot belong to include-only groups.'
-      };
-    }
-    if (excludeGroupId && includeOnlyGroupIds.length > 0) {
-      return {
-        title: 'Conflicting groups',
-        description: 'Accounts cannot belong to include and exclude groups simultaneously.'
+        title: 'Unknown collection',
+        description: 'Choose from the available collections when assigning accounts.'
       };
     }
 
@@ -665,219 +633,99 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       ...prev,
       accounts: prev.accounts.map((acct) =>
         acct.id === accountId
-          ? { ...acct, includeOnlyGroupIds: [...includeOnlyGroupIds], excludeGroupId }
+          ? { ...acct, collectionIds: Array.from(new Set(collectionIds)) }
           : acct
-      ),
-      accountGroups: prev.accountGroups.map((group) => {
-        const shouldContain =
-          group.type === 'include'
-            ? includeOnlyGroupIds.includes(group.id)
-            : excludeGroupId === group.id;
-        const hasAccount = group.accountIds.includes(accountId);
-        if (shouldContain && !hasAccount) {
-          return { ...group, accountIds: [...group.accountIds, accountId] };
-        }
-        if (!shouldContain && hasAccount) {
-          return { ...group, accountIds: group.accountIds.filter((idValue) => idValue !== accountId) };
-        }
-        return group;
-      })
+      )
     }));
-    logInfo('Account group membership updated', { accountId });
+    logInfo('Account collections updated', { accountId, count: collectionIds.length });
     return null;
   };
 
-  const createAccountGroup = (input: CreateAccountGroupInput): DataActionError | null => {
-    if (!input.name.trim()) {
-      return { title: 'Name required', description: 'Provide a group name.' };
+  const createAccountCollection = (
+    input: CreateAccountCollectionInput
+  ): DataActionError | null => {
+    const trimmedName = input.name.trim();
+    if (!trimmedName) {
+      return { title: 'Name required', description: 'Provide a collection name.' };
     }
-    const duplicate = state.accountGroups.find(
-      (group) => group.name.toLocaleLowerCase() === input.name.trim().toLocaleLowerCase()
+    const duplicate = state.accountCollections.find(
+      (collection) => collection.name.toLocaleLowerCase() === trimmedName.toLocaleLowerCase()
     );
     if (duplicate) {
-      return { title: 'Duplicate group', description: 'Account group names must be unique.' };
-    }
-    if (input.type === 'exclude' && input.accountIds.length > 1) {
-      const invalid = input.accountIds.some((accountId) => {
-        const account = state.accounts.find((acct) => acct.id === accountId);
-        return account?.includeOnlyGroupIds.length;
-      });
-      if (invalid) {
-        return {
-          title: 'Conflicting membership',
-          description: 'Remove include-only memberships before assigning to an exclude group.'
-        };
-      }
+      return {
+        title: 'Duplicate collection',
+        description: 'Collection names must be unique.'
+      };
     }
 
-    const group: AccountGroup = {
-      id: generateId('grp'),
-      name: input.name.trim(),
-      type: input.type,
-      description: input.description,
-      color: input.color ?? (input.type === 'include' ? '#2563eb' : '#dc2626'),
-      accountIds: [...input.accountIds],
-      archived: false,
+    const collection: AccountCollection = {
+      id: generateId('col'),
+      name: trimmedName,
+      description: input.description?.trim() || undefined,
+      color: input.color ?? '#2563eb',
       isDemo: false
     };
 
     updateState((prev) => ({
       ...prev,
-      accountGroups: [...prev.accountGroups, group],
-      accounts: prev.accounts.map((acct) => {
-        if (!group.accountIds.includes(acct.id)) return acct;
-        if (group.type === 'include') {
-          return {
-            ...acct,
-            includeOnlyGroupIds: Array.from(new Set([...acct.includeOnlyGroupIds, group.id]))
-          };
-        }
-        return {
-          ...acct,
-          excludeGroupId: group.id
-        };
-      })
+      accountCollections: [...prev.accountCollections, collection]
     }));
-    logInfo('Account group created', { id: group.id, type: group.type });
+    logInfo('Account collection created', { id: collection.id });
     return null;
   };
 
-  const updateAccountGroup = (
+  const updateAccountCollection = (
     id: string,
-    input: UpdateAccountGroupInput
+    input: UpdateAccountCollectionInput
   ): DataActionError | null => {
-    const group = state.accountGroups.find((g) => g.id === id);
-    if (!group) {
-      return { title: 'Group missing', description: 'Select a valid account group.' };
+    const collection = state.accountCollections.find((item) => item.id === id);
+    if (!collection) {
+      return { title: 'Collection missing', description: 'Select a valid collection.' };
     }
+
     const trimmedName = input.name?.trim();
     if (trimmedName) {
-      const duplicate = state.accountGroups.find(
-        (g) => g.id !== id && g.name.toLocaleLowerCase() === trimmedName.toLocaleLowerCase()
+      const duplicate = state.accountCollections.find(
+        (item) => item.id !== id && item.name.toLocaleLowerCase() === trimmedName.toLocaleLowerCase()
       );
       if (duplicate) {
-        return { title: 'Duplicate group', description: 'Choose a unique group name.' };
-      }
-    }
-
-    if (group.type === 'exclude' && input.accountIds) {
-      const invalid = input.accountIds.some((accountId) => {
-        const account = state.accounts.find((acct) => acct.id === accountId);
-        return (account?.includeOnlyGroupIds.length ?? 0) > 0;
-      });
-      if (invalid) {
         return {
-          title: 'Conflicting membership',
-          description: 'Remove include-only memberships before assigning accounts to an exclude group.'
+          title: 'Duplicate collection',
+          description: 'Collection names must be unique.'
         };
       }
     }
 
-    if (group.type === 'include' && input.accountIds) {
-      const invalid = input.accountIds.some((accountId) => {
-        const account = state.accounts.find((acct) => acct.id === accountId);
-        return account ? !account.includeInTotals : false;
-      });
-      if (invalid) {
-        return {
-          title: 'Excluded account',
-          description: 'Only accounts included in totals can be part of include-only groups.'
-        };
-      }
-    }
-
-    updateState((prev) => {
-      const nextAccountIds = input.accountIds ? [...input.accountIds] : group.accountIds;
-      const nextGroups = prev.accountGroups.map((existing) =>
-        existing.id === id
+    updateState((prev) => ({
+      ...prev,
+      accountCollections: prev.accountCollections.map((item) =>
+        item.id === id
           ? {
-              ...existing,
-              name: trimmedName ?? existing.name,
-              description: input.description ?? existing.description,
-              color: input.color ?? existing.color,
-              accountIds: nextAccountIds
+              ...item,
+              name: trimmedName ?? item.name,
+              description:
+                input.description !== undefined
+                  ? input.description.trim() || undefined
+                  : item.description,
+              color: input.color ?? item.color
             }
-          : existing
-      );
-
-      const nextAccounts = prev.accounts.map((acct) => {
-        if (group.type === 'include') {
-          const shouldContain = nextAccountIds.includes(acct.id);
-          const has = acct.includeOnlyGroupIds.includes(id);
-          if (shouldContain && !has) {
-            return {
-              ...acct,
-              includeOnlyGroupIds: [...acct.includeOnlyGroupIds, id],
-              excludeGroupId: acct.excludeGroupId === id ? null : acct.excludeGroupId
-            };
-          }
-          if (!shouldContain && has) {
-            return {
-              ...acct,
-              includeOnlyGroupIds: acct.includeOnlyGroupIds.filter((groupId) => groupId !== id)
-            };
-          }
-        } else {
-          const shouldContain = nextAccountIds.includes(acct.id);
-          if (shouldContain && acct.excludeGroupId !== id) {
-            return {
-              ...acct,
-              excludeGroupId: id,
-              includeOnlyGroupIds: acct.includeOnlyGroupIds.filter((groupId) => groupId !== id)
-            };
-          }
-          if (!shouldContain && acct.excludeGroupId === id) {
-            return { ...acct, excludeGroupId: null };
-          }
-        }
-        return acct;
-      });
-
-      const synchronizedGroups = nextGroups.map((existing) => {
-        if (existing.type === 'include') {
-          return {
-            ...existing,
-            accountIds: existing.accountIds.filter((acctId) => {
-              const account = nextAccounts.find((acct) => acct.id === acctId);
-              return account ? account.includeOnlyGroupIds.includes(existing.id) : false;
-            })
-          };
-        }
-        return {
-          ...existing,
-          accountIds: existing.accountIds.filter((acctId) => {
-            const account = nextAccounts.find((acct) => acct.id === acctId);
-            return account ? account.excludeGroupId === existing.id : false;
-          })
-        };
-      });
-
-      return { ...prev, accountGroups: synchronizedGroups, accounts: nextAccounts };
-    });
-    logInfo('Account group updated', { id });
+          : item
+      )
+    }));
+    logInfo('Account collection updated', { id });
     return null;
   };
 
-  const archiveAccountGroup = (id: string) => {
+  const deleteAccountCollection = (id: string) => {
     updateState((prev) => ({
       ...prev,
-      accountGroups: prev.accountGroups.map((group) =>
-        group.id === id ? { ...group, archived: true, accountIds: [] } : group
-      ),
-      accounts: prev.accounts.map((acct) => {
-        if (acct.includeOnlyGroupIds.includes(id)) {
-          return {
-            ...acct,
-            includeOnlyGroupIds: acct.includeOnlyGroupIds.filter((groupId) => groupId !== id)
-          };
-        }
-        if (acct.excludeGroupId === id) {
-          return { ...acct, excludeGroupId: null };
-        }
-        return acct;
-      })
+      accountCollections: prev.accountCollections.filter((collection) => collection.id !== id),
+      accounts: prev.accounts.map((acct) => ({
+        ...acct,
+        collectionIds: acct.collectionIds.filter((collectionId) => collectionId !== id)
+      }))
     }));
-    logInfo('Account group archived', { id });
+    logInfo('Account collection deleted', { id });
   };
 
   const createCategory = (input: CreateCategoryInput): DataActionError | null => {
@@ -1457,9 +1305,16 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       masterCategories: MASTER_CATEGORIES,
       categories: [...prev.categories, ...demo.categories],
       subCategories: [...prev.subCategories, ...demo.subCategories],
-      institutions: [...prev.institutions, ...demo.institutions],
       accounts: [...prev.accounts, ...demo.accounts],
-      accountGroups: [...prev.accountGroups, ...demo.accountGroups],
+      accountCollections: [...prev.accountCollections, ...demo.accountCollections],
+      providerDirectory: Array.from(
+        new Map(
+          [...prev.providerDirectory, ...demo.providerDirectory].map((name) => [
+            name.toLocaleLowerCase(),
+            name
+          ])
+        ).values()
+      ).sort((a, b) => a.toLocaleLowerCase().localeCompare(b.toLocaleLowerCase())),
       payees: [...prev.payees, ...demo.payees],
       tags: [...prev.tags, ...demo.tags],
       transactions: [...demo.transactions, ...prev.transactions],
@@ -1478,13 +1333,32 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const clearDemoData = () => {
+    const demoProviders = new Set(
+      buildDemoOnlyData()
+        .providerDirectory.map((name) => name.toLocaleLowerCase())
+    );
     updateState((prev) => ({
       ...prev,
       categories: prev.categories.filter((cat) => !cat.isDemo),
       subCategories: prev.subCategories.filter((sub) => !sub.isDemo),
-      institutions: prev.institutions.filter((inst) => !inst.isDemo),
-      accounts: prev.accounts.filter((acct) => !acct.isDemo),
-      accountGroups: prev.accountGroups.filter((group) => !group.isDemo),
+      accountCollections: prev.accountCollections.filter((collection) => !collection.isDemo),
+      accounts: prev.accounts
+        .filter((acct) => !acct.isDemo)
+        .map((acct) => ({
+          ...acct,
+          collectionIds: acct.collectionIds.filter((collectionId) =>
+            prev.accountCollections.some(
+              (collection) => !collection.isDemo && collection.id === collectionId
+            )
+          )
+        })),
+      providerDirectory: prev.providerDirectory.filter((name) => {
+        const normalized = name.toLocaleLowerCase();
+        if (!demoProviders.has(normalized)) return true;
+        return prev.accounts.some(
+          (acct) => !acct.isDemo && acct.provider.toLocaleLowerCase() === normalized
+        );
+      }),
       payees: prev.payees.filter((payee) => !payee.isDemo),
       tags: prev.tags.filter((tag) => !tag.isDemo),
       transactions: prev.transactions.filter((txn) => !txn.isDemo),
@@ -1497,18 +1371,16 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     () => ({
       state,
       masterCategories: MASTER_CATEGORIES,
-      createInstitution,
-      updateInstitution,
-      archiveInstitution,
+      recordProviderName,
       createAccount,
       updateAccount,
       archiveAccount,
       unarchiveAccount,
       setAccountInclusion,
-      updateAccountGroupsForAccount,
-      createAccountGroup,
-      updateAccountGroup,
-      archiveAccountGroup,
+      setCollectionsForAccount,
+      createAccountCollection,
+      updateAccountCollection,
+      deleteAccountCollection,
       createCategory,
       updateCategory,
       mergeCategories,

@@ -9,13 +9,13 @@ const Reports = () => (
     />
     <div className="content-card">
       <p>
-        Reports will deliver tailored views for fiscal years, calendar months, pots, categories, and
-        allocation audits with exportable charts.
+        Reports will deliver tailored views for fiscal years, calendar months, collections,
+        categories, and allocation audits with exportable charts.
       </p>
       <div className="placeholder-grid">
         <div className="placeholder-tile">
           <h3>Report Gallery</h3>
-          <p>Placeholder for selecting dashboards like income vs expense and pot insights.</p>
+          <p>Placeholder for selecting dashboards like income vs expense and collection insights.</p>
           <Tooltip label="Report gallery tooltip placeholder" />
         </div>
         <div className="placeholder-tile">

@@ -10,11 +10,11 @@ const Overview = () => {
     () => state.accounts.filter((account) => !account.archived),
     [state.accounts]
   );
-  const accountGroups = useMemo(
-    () => state.accountGroups.filter((group) => !group.archived),
-    [state.accountGroups]
+  const collections = useMemo(
+    () => state.accountCollections,
+    [state.accountCollections]
   );
-  const [selectedGroup, setSelectedGroup] = useState<string>('totals');
+  const [selectedCollection, setSelectedCollection] = useState<string>('totals');
 
   const rateLookup = useMemo(() => {
     const map = new Map<string, number>();
@@ -36,14 +36,14 @@ const Overview = () => {
   );
 
   const filteredAccounts = useMemo(() => {
-    if (selectedGroup === 'all') return accounts;
-    if (selectedGroup === 'totals') {
+    if (selectedCollection === 'all') return accounts;
+    if (selectedCollection === 'totals') {
       return accounts.filter((account) => account.includeInTotals);
     }
-    const group = accountGroups.find((item) => item.id === selectedGroup);
-    if (!group) return accounts;
-    return accounts.filter((account) => group.accountIds.includes(account.id));
-  }, [accounts, accountGroups, selectedGroup]);
+    const collection = collections.find((item) => item.id === selectedCollection);
+    if (!collection) return accounts;
+    return accounts.filter((account) => account.collectionIds.includes(collection.id));
+  }, [accounts, collections, selectedCollection]);
 
   const totalBalance = useMemo(
     () =>
@@ -80,33 +80,33 @@ const Overview = () => {
     <div className="content-stack">
       <PageHeader
         title="Overview"
-        description="High-level health of your finances with account group filters and rolling metrics."
+        description="High-level health of your finances with collection filters and rolling metrics."
       />
       <div className="form-card">
         <h3>Focus</h3>
         <div className="chip-list">
           <button
             type="button"
-            className={`chip-button ${selectedGroup === 'totals' ? 'active' : ''}`}
-            onClick={() => setSelectedGroup('totals')}
+            className={`chip-button ${selectedCollection === 'totals' ? 'active' : ''}`}
+            onClick={() => setSelectedCollection('totals')}
           >
             Included in totals
           </button>
           <button
             type="button"
-            className={`chip-button ${selectedGroup === 'all' ? 'active' : ''}`}
-            onClick={() => setSelectedGroup('all')}
+            className={`chip-button ${selectedCollection === 'all' ? 'active' : ''}`}
+            onClick={() => setSelectedCollection('all')}
           >
             All accounts
           </button>
-          {accountGroups.map((group) => (
+          {collections.map((collection) => (
             <button
-              key={group.id}
+              key={collection.id}
               type="button"
-              className={`chip-button ${selectedGroup === group.id ? 'active' : ''}`}
-              onClick={() => setSelectedGroup(group.id)}
+              className={`chip-button ${selectedCollection === collection.id ? 'active' : ''}`}
+              onClick={() => setSelectedCollection(collection.id)}
             >
-              {group.name}
+              {collection.name}
             </button>
           ))}
         </div>
@@ -156,14 +156,14 @@ const Overview = () => {
               <p>
                 <strong>{formatCurrency(account.currentBalance, account.currency)}</strong>
               </p>
-              {account.includeOnlyGroupIds.length > 0 && (
+              {account.collectionIds.length > 0 && (
                 <div className="chip-list">
-                  {account.includeOnlyGroupIds.map((groupId) => {
-                    const group = accountGroups.find((item) => item.id === groupId);
-                    if (!group) return null;
+                  {account.collectionIds.map((collectionId) => {
+                    const collection = collections.find((item) => item.id === collectionId);
+                    if (!collection) return null;
                     return (
-                      <span key={groupId} className="pill pill-muted">
-                        {group.name}
+                      <span key={collectionId} className="pill pill-muted">
+                        {collection.name}
                       </span>
                     );
                   })}

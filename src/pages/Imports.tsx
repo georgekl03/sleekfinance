@@ -1,5 +1,4 @@
 import { ChangeEvent, DragEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import Papa from 'papaparse';
 import PageHeader from '../components/PageHeader';
 import Tooltip from '../components/Tooltip';
 import { useData } from '../data/DataContext';
@@ -144,6 +143,82 @@ const fxModeOptions: { value: FxMode; label: string }[] = [
 ];
 
 const HELP_HREF = '#/help#imports';
+
+const splitCsvLine = (line: string) => {
+  const values: string[] = [];
+  let current = '';
+  let inQuotes = false;
+
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    if (inQuotes) {
+      if (char === '"') {
+        if (line[index + 1] === '"') {
+          current += '"';
+          index += 1;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        current += char;
+      }
+    } else if (char === ',') {
+      values.push(current);
+      current = '';
+    } else if (char === '"') {
+      inQuotes = true;
+    } else {
+      current += char;
+    }
+  }
+
+  if (inQuotes) {
+    throw new Error('Unterminated quoted field in CSV input.');
+  }
+
+  values.push(current);
+  return values;
+};
+
+const parseCsvText = (text: string) => {
+  const lines = text.split(/\r?\n/);
+  let header: string[] | null = null;
+  const rows: string[][] = [];
+
+  lines.forEach((line) => {
+    if (!line.trim()) {
+      return;
+    }
+
+    const values = splitCsvLine(line);
+    if (!header) {
+      header = values.map((value) => value ?? '').map((value) => value.trim());
+      return;
+    }
+
+    if (values.every((value) => value.trim().length === 0)) {
+      return;
+    }
+
+    rows.push(values);
+  });
+
+  if (!header) {
+    return { fields: [] as string[], rows: [] as string[][] };
+  }
+
+  return { fields: header, rows };
+};
+
+const buildRowsFromCsv = (fields: string[], values: string[][]) =>
+  values.map((row) => {
+    const normalized: RawImportRow = {};
+    fields.forEach((field, index) => {
+      const key = field ?? '';
+      normalized[key] = normalizeCell(row[index] ?? '');
+    });
+    return normalized;
+  });
 
 const DEMO_IMPORTS: DemoImportDefinition[] = [
   {
@@ -479,29 +554,26 @@ const Imports = () => {
       }
       setUploadError(null);
       setLoading(true);
-      Papa.parse<RawImportRow>(file, {
-        header: true,
-        skipEmptyLines: true,
-        complete: (results) => {
-          setLoading(false);
-          if (results.errors.length > 0) {
+      file
+        .text()
+        .then((text) => {
+          try {
+            const parsed = parseCsvText(text);
+            if (parsed.fields.length === 0) {
+              throw new Error('Missing header row.');
+            }
+            const rows = buildRowsFromCsv(parsed.fields, parsed.rows);
+            setLoading(false);
+            handleFileParse(rows, parsed.fields, file.name);
+          } catch (error) {
+            setLoading(false);
             setUploadError('Unable to parse the CSV file. Check delimiter settings and try again.');
-            return;
           }
-          const rows = (results.data as RawImportRow[]).map((row) => {
-            const normalized: RawImportRow = {};
-            (results.meta.fields ?? []).forEach((field) => {
-              normalized[field ?? ''] = normalizeCell(row[field ?? '']);
-            });
-            return normalized;
-          });
-          handleFileParse(rows, (results.meta.fields ?? []).map((field) => field ?? ''), file.name);
-        },
-        error: () => {
+        })
+        .catch(() => {
           setLoading(false);
           setUploadError('Failed to read the file. Please try again.');
-        }
-      });
+        });
     },
     [handleFileParse]
   );
@@ -883,14 +955,17 @@ const Imports = () => {
           }
           return acc;
         },
-        {
-          valid: 0,
-          warning: 0,
-          duplicate: 0,
-          invalid: 0,
-          needsFx: 0,
-          duplicateTotal: 0
-        } as Record<PreviewRowStatus | 'duplicateTotal', number>
+        (() => {
+          const totals: Record<PreviewRowStatus | 'duplicateTotal', number> = {
+            valid: 0,
+            warning: 0,
+            duplicate: 0,
+            invalid: 0,
+            'needs-fx': 0,
+            duplicateTotal: 0
+          };
+          return totals;
+        })()
       ),
     [previewRows]
   );
@@ -1259,35 +1334,27 @@ const Imports = () => {
         throw new Error('Unable to load demo file');
       }
       const text = await response.text();
-      Papa.parse<RawImportRow>(text, {
-        header: true,
-        skipEmptyLines: true,
-        complete: (results) => {
-          setLoading(false);
-          const fields = (results.meta.fields ?? []).map((field) => field ?? '');
-          const rows = (results.data as RawImportRow[]).map((row) => {
-            const normalized: RawImportRow = {};
-            fields.forEach((field) => {
-              normalized[field] = normalizeCell(row[field]);
-            });
-            return normalized;
-          });
-          handleFileParse(rows, fields, `${selection.profileName} Demo`);
-          setMapping(selection.mapping);
-          setFormatOptions(selection.format);
-          setFxOptions(selection.fx ?? { mode: 'single-rate', rateValue: '1.00' });
-          setProfileName(selection.profileName);
-          setRememberProfile(false);
-          setMatchedProfile(null);
-          setIsDemoImport(true);
-          setAccountColumn(null);
-          setStep('mapping');
-        },
-        error: () => {
-          setLoading(false);
-          setUploadError('Failed to load demo file.');
+      try {
+        const parsed = parseCsvText(text);
+        if (parsed.fields.length === 0) {
+          throw new Error('Missing header row.');
         }
-      });
+        const rows = buildRowsFromCsv(parsed.fields, parsed.rows);
+        setLoading(false);
+        handleFileParse(rows, parsed.fields, `${selection.profileName} Demo`);
+        setMapping(selection.mapping);
+        setFormatOptions(selection.format);
+        setFxOptions(selection.fx ?? { mode: 'single-rate', rateValue: '1.00' });
+        setProfileName(selection.profileName);
+        setRememberProfile(false);
+        setMatchedProfile(null);
+        setIsDemoImport(true);
+        setAccountColumn(null);
+        setStep('mapping');
+      } catch (parseError) {
+        setLoading(false);
+        setUploadError('Failed to load demo file.');
+      }
     } catch (error) {
       setLoading(false);
       setUploadError('Unable to load the demo CSV.');

@@ -5,16 +5,17 @@ const Help = () => (
   <div className="content-stack">
     <PageHeader
       title="Help"
-      description="Guides for managing accounts, providers, groups, categories, and payees."
+      description="Guides for managing accounts, providers, collections, categories, and payees."
     />
     <div className="content-card">
       <h3>Accounts</h3>
       <p className="muted-text">
-        Accounts now open from a compact list. Select any row to reveal the editor with Basic and
-        Advanced tabs. Use the Basic tab to rename, change provider, adjust type or currency, and
-        toggle <strong>Show in lists</strong> (archives/unarchives the account) or <strong>Count in
-        Net Worth</strong>. Advanced covers manual balance adjustments, account references, notes,
-        and collection membership.
+        Accounts now open from a compact list. Select any row to reveal the editor with a primary
+        form and an expandable <strong>Advanced settings</strong> section. Use the main form to
+        rename the account, pick a provider, adjust type or currency, and toggle <strong>Show in
+        lists</strong> (archives/unarchives the account) or <strong>Count in Net Worth</strong>.
+        Expand Advanced settings to update balances, account references, notes, or collection
+        membership.
       </p>
       <div className="help-diagram">
         <strong>Visibility & totals</strong>
@@ -24,18 +25,20 @@ Count in Net Worth ── off ──> excluded from overview and net-worth total
       </div>
     </div>
     <div className="content-card">
-      <h3>Account Groups</h3>
+      <h3>Collections</h3>
       <p className="muted-text">
-        Groups act as filter chips on Overview and Transactions. Include groups spotlight related
-        accounts even when totals are filtered. Exclude groups remove temporary balances such as
-        credit cycling from reports.
+        Collections act as reusable filters on Overview, Transactions, and future reports.
+        Accounts can belong to multiple collections at once, letting you pivot between views such as
+        "Savings", "Core Spending", or "University" without affecting balances. Collections never
+        alter totals—only visibility.
       </p>
       <div className="help-diagram">
-        <strong>Group membership rules</strong>
-        <pre>{`Include group ──> multiple accounts allowed
-Exclude group ──> account cannot belong to any include-only group
-Account tags ──> chips show colour defined on the group`}</pre>
-        <Tooltip label="Assign accounts carefully: an account cannot exist in an include and exclude group simultaneously." />
+        <strong>Collection tips</strong>
+        <pre>{`Example sets:
+  Savings ──> emergency fund + long-term cash
+  Core Spending ──> everyday current + key cards
+  Travel ──> dedicated FX and cash wallets`}</pre>
+        <Tooltip label="Use collections to compare scenarios quickly: select one to update Overview chips and transaction filters instantly." />
       </div>
     </div>
     <div className="content-card">
