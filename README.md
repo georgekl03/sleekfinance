@@ -1,3 +1,25 @@
+## Interest and UK Tax-Year Handling
+
+SleekFinance now includes a dedicated **Interest** workspace that surfaces savings and investment interest
+across every connected account. Any transaction assigned to a master category whose flow resolves to
+“Interest”, or manually marked with the interest flow override, is automatically treated as an inflow. These
+transactions retain their native currency amounts, but summaries are converted to your configured base
+currency using the existing exchange rate table so totals, blended rates, and projections remain comparable.
+
+The Interest view supports custom date ranges, calendar years, and the 6 April → 5 April UK tax-year cycle.
+You can filter by account, provider, and collection to isolate the balances that matter, while the monthly
+timeline groups totals by account or provider to highlight top performers over the last twelve months (or the
+selected window). A blended APR is calculated by dividing the interest earned by the estimated average base
+currency balance for the period and annualising the result—this is labelled as an approximation because it
+relies on opening balances and transaction history rather than bank-supplied daily accruals. The same data
+drives an optional 12-month projection that assumes the blended APR continues.
+
+A dedicated UK tax-year report preselects the current tax year, shows totals by account type, and lets you hop
+between previous years with one click. Budgets and the Transactions workspace link directly into the Interest
+view when you drill into interest lines, so analytical deep dives remain read-only and never mutate budgets or
+transactions. The existing one-command launcher (`python3 launch.py`) continues to start the complete
+application—no additional steps are required to unlock the new analysis.
+
 ## Income Allocation Rules
 
 The Allocations workspace lets you describe how inflows should be virtually split across
@@ -77,6 +99,7 @@ combination to sign in.
 
 ## Environment notes
 
+- Interest analytics reuse your configured base currency and exchange rate table—no new environment variables are required for multi-currency or tax-year reporting.
 - No new configuration keys were introduced for the budgeting upgrades. The existing Settings fields for
   base currency and manual exchange rates continue to drive all conversions, and planned amounts always
   remain stored in the configured base currency.

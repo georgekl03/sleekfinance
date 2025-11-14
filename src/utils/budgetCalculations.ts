@@ -12,7 +12,7 @@ import {
 import { getBudgetPeriodInfo, getBudgetPeriodIndex } from './budgetPeriods';
 import { getFlowTypeForMaster } from './categories';
 
-type NormalisedFlow = 'in' | 'out' | 'transfer';
+type NormalisedFlow = 'in' | 'interest' | 'out' | 'transfer';
 
 type BudgetTransactionView = {
   date: Date;
@@ -83,6 +83,8 @@ const normaliseLineFlow = (master: MasterCategory | undefined): NormalisedFlow =
   switch (flowType) {
     case 'in':
       return 'in';
+    case 'interest':
+      return 'interest';
     case 'transfers':
       return 'transfer';
     case 'out':
@@ -101,6 +103,7 @@ const normaliseTransactionFlow = (
       case 'transfer':
         return 'transfer';
       case 'interest':
+        return 'interest';
       case 'in':
         return 'in';
       case 'fees':
@@ -403,7 +406,7 @@ export const calculateBudgetPeriod = ({
     const key = metric.master.id;
     const existing = summaryMap.get(key) ?? {
       master: metric.master,
-      flow: metric.flow === 'in' ? 'in' : 'out',
+      flow: metric.flow === 'out' ? 'out' : 'in',
       planned: 0,
       actual: 0
     };

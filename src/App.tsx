@@ -16,6 +16,7 @@ import Investments from './pages/Investments';
 import Imports from './pages/Imports';
 import Settings from './pages/Settings';
 import Help from './pages/Help';
+import Interest from './pages/Interest';
 import Login from './pages/Login';
 import { DataProvider } from './data/DataContext';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -42,6 +43,7 @@ const AppShell = () => {
           <Route path="/rules" element={<Rules />} />
           <Route path="/allocations" element={<Allocations />} />
           <Route path="/reports" element={<Reports />} />
+          <Route path="/interest" element={<Interest />} />
           <Route path="/investments" element={<Investments />} />
           <Route path="/imports" element={<Imports />} />
           <Route path="/settings" element={<Settings />} />

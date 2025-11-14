@@ -16,6 +16,7 @@ const navItems = [
   { to: '/rules', label: 'Rules' },
   { to: '/allocations', label: 'Allocations' },
   { to: '/reports', label: 'Reports' },
+  { to: '/interest', label: 'Interest' },
   { to: '/investments', label: 'Investments' },
   { to: '/imports', label: 'Imports' },
   { to: '/settings', label: 'Settings' },

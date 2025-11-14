@@ -123,14 +123,14 @@ const Overview = () => {
   }, [accountsByCollection, selectedAccountId]);
 
   useEffect(() => {
-    if (flowFilter === 'in' || flowFilter === 'out') return;
+    if (flowFilter === 'in' || flowFilter === 'out' || flowFilter === 'interest') return;
     setSelectedCategoryId(null);
     setSelectedSubCategoryId(null);
     setExpandedCategoryId(null);
   }, [flowFilter]);
 
   const activeCategoryGroups = useMemo(() => {
-    if (flowFilter !== 'in' && flowFilter !== 'out') {
+    if (flowFilter !== 'in' && flowFilter !== 'out' && flowFilter !== 'interest') {
       return [];
     }
     return categoryTree.filter((group) => group.flowType === flowFilter);
@@ -235,7 +235,7 @@ const Overview = () => {
           case 'transfer':
             return 'transfers';
           case 'interest':
-            return 'in';
+            return 'interest';
           case 'fees':
             return 'out';
           case 'in':
@@ -389,7 +389,7 @@ const Overview = () => {
     {
       id: 'in',
       label: 'In',
-      tooltip: 'Focus on inflows such as salary, grants, and earned interest.'
+      tooltip: 'Focus on inflows such as salary, grants, and reimbursements.'
     },
     {
       id: 'out',
@@ -400,6 +400,11 @@ const Overview = () => {
       id: 'transfers',
       label: 'Transfers',
       tooltip: 'Review internal account movements and balance shuffles.'
+    },
+    {
+      id: 'interest',
+      label: 'Interest',
+      tooltip: 'Inspect earned interest across savings, investments, and cash sweep balances.'
     }
   ];
 
