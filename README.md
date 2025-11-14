@@ -46,6 +46,25 @@ combination to sign in.
   changed in Settings) and provide toggles to reveal native account balances. Base equivalents are
   derived from the manual exchange-rate table and are always labelled as display-only conversions.
 
+## Budgets Overview
+
+- **What they are** – Budgets let you define a planned amount for a time-bound period and compare it
+  with real activity. Each budget has its own cadence (weekly, monthly, annual, or UK fiscal year) and
+  stores the start reference so period navigation remains accurate as time passes.
+- **Creating & editing** – Open the Budgets page from the main navigation to see every budget. Use
+  **New budget** to create one, then rename, duplicate, archive, or delete from the list. Selecting a
+  budget opens the editor where you can change the name, period type, starting month/day/year, and the
+  set of accounts or collections it should include.
+- **Period types** – Monthly budgets let you choose the starting month and year. Weekly budgets let you
+  pick which day counts as the start of the week. Annual budgets accept a starting year, while UK fiscal
+  year budgets automatically use 6 April to 5 April boundaries and let you choose the first tax year.
+  The editor highlights the active period and provides Previous/Current/Next navigation to review other
+  cycles quickly.
+- **Accounts & collections** – By default budgets include every account that is shown in lists and counts
+  toward net worth. Switch to **collections** to scope the budget to specific account groups (for example,
+  excluding a long-term savings collection). Changing the inclusion mode updates future calculations
+  without removing any stored budget configuration.
+
 ## Available Scripts
 
 | Command | Description |

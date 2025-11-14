@@ -40,6 +40,21 @@ Native view → shows native + base equivalent (display only)`}</pre>
       </div>
     </div>
     <div className="content-card">
+      <h3>Budgets</h3>
+      <p className="muted-text">
+        Create budgets from the Budgets page to track planned spending or income across a cadence that
+        matches your workflow. Choose between weekly, monthly, annual, or UK fiscal year periods, set a
+        starting point, and decide whether the budget should follow all eligible accounts or only those
+        in specific collections. The editor highlights the current period and offers quick Previous /
+        Current / Next navigation.
+      </p>
+      <div className="help-diagram">
+        <strong>Editor quick tips</strong>
+        <pre>{`Period types: Weekly • Monthly • Annual • UK fiscal year\nStart controls: week day, start month/year, or tax year\nInclusion: All accounts or picked collections`}</pre>
+        <Tooltip label="Tooltips in the editor explain period cadences and how collection filters change which accounts feed each budget." />
+      </div>
+    </div>
+    <div className="content-card">
       <h3>Accounts</h3>
       <p className="muted-text">
         Accounts now open from a compact list. Select any row to reveal the editor with a primary

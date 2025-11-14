@@ -53,6 +53,25 @@ export type AccountCollection = {
   isDemo: boolean;
 };
 
+export type BudgetPeriodType = 'weekly' | 'monthly' | 'annual' | 'uk-fiscal';
+
+export type BudgetInclusionMode = 'all' | 'collections';
+
+export type Budget = {
+  id: string;
+  name: string;
+  periodType: BudgetPeriodType;
+  anchorDate: string;
+  startMonth?: number;
+  startYear?: number;
+  startDayOfWeek?: number;
+  includeMode: BudgetInclusionMode;
+  collectionIds: string[];
+  archived: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type Payee = {
   id: string;
   name: string;
@@ -187,6 +206,7 @@ export type DataState = {
   accounts: Account[];
   providerDirectory: string[];
   accountCollections: AccountCollection[];
+  budgets: Budget[];
   payees: Payee[];
   tags: Tag[];
   transactions: Transaction[];
