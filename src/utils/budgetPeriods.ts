@@ -291,3 +291,8 @@ export const getBudgetPeriodInfo = (
 
 export const formatBudgetPeriodRange = (info: BudgetPeriodInfo) =>
   `${formatShortDate(info.start)} – ${formatShortDate(info.end)}`;
+
+export const getBudgetPeriodIndex = (budget: Budget, date: Date) => {
+  const normalised = applyBudgetPeriodDraft(budget, {}, date);
+  return getIndexForDate(normalised, date);
+};
