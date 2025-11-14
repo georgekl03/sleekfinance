@@ -39,6 +39,42 @@ import { logError, logInfo } from '../utils/logger';
 
 const STORAGE_KEY = 'sleekfinance.stage3.data';
 
+export type TransactionAuditEntry = {
+  id: string;
+  field: string;
+  previous: string | null;
+  next: string | null;
+  user: string;
+  timestamp: string;
+};
+
+export type TransactionUpdateOptions = {
+  manual?: boolean;
+  user?: string;
+  auditEntries?:
+    | {
+        field: string;
+        previous?: string | null;
+        next?: string | null;
+      }[]
+    | ((existing: Transaction) => {
+        field: string;
+        previous?: string | null;
+        next?: string | null;
+      }[]);
+};
+
+export type TransactionSplitLineInput = {
+  amount: number;
+  memo?: string | null;
+  categoryId?: string | null;
+  subCategoryId?: string | null;
+  payeeId?: string | null;
+  tags?: string[];
+  description?: string | null;
+  metadata?: Record<string, unknown>;
+};
+
 const createDefaultImportDefaults = (): ImportDefaults => ({
   dateFormat: 'YYYY-MM-DD',
   decimalSeparator: '.',
@@ -286,7 +322,21 @@ type DataContextValue = {
   updateTag: (id: string, input: UpdateTagInput) => DataActionError | null;
   archiveTag: (id: string) => void;
   addTransaction: (txn: Omit<Transaction, 'id'>) => Transaction;
-  updateTransaction: (id: string, txn: Partial<Transaction>) => void;
+  updateTransaction: (
+    id: string,
+    txn: Partial<Transaction>,
+    options?: TransactionUpdateOptions
+  ) => void;
+  bulkUpdateTransactions: (
+    ids: string[],
+    txn: Partial<Transaction>,
+    options?: TransactionUpdateOptions
+  ) => void;
+  splitTransaction: (
+    id: string,
+    lines: TransactionSplitLineInput[],
+    user?: string
+  ) => DataActionError | null;
   archiveTransaction: (id: string) => void;
   updateBaseCurrency: (currency: CurrencyCode) => void;
   upsertExchangeRate: (currency: CurrencyCode, rate: number) => DataActionError | null;
@@ -351,6 +401,121 @@ const withTimestamp = (updater: (state: DataState) => DataState) => (state: Data
 };
 
 const normalise = (value: string) => value.trim().toLocaleLowerCase();
+
+const WORKSPACE_METADATA_KEY = '__transactionsWorkspace';
+
+type WorkspaceMetadata = {
+  auditLog?: TransactionAuditEntry[];
+  lastManualEdit?: { user: string; timestamp: string; fields: string[] };
+  manuallyEdited?: boolean;
+  splitParentId?: string | null;
+  splitIndex?: number | null;
+  splitTotal?: number | null;
+  rawFields?: Record<string, unknown> | null;
+};
+
+const readWorkspaceMetadata = (metadata: Transaction['metadata']): WorkspaceMetadata => {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    return {};
+  }
+  const raw = (metadata as Record<string, unknown>)[WORKSPACE_METADATA_KEY];
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return {};
+  }
+  const value = raw as WorkspaceMetadata;
+  const auditLog = Array.isArray(value.auditLog)
+    ? (value.auditLog as TransactionAuditEntry[])
+    : undefined;
+  const lastManualEdit =
+    value.lastManualEdit && typeof value.lastManualEdit === 'object'
+      ? (value.lastManualEdit as WorkspaceMetadata['lastManualEdit'])
+      : undefined;
+  const rawFields =
+    value.rawFields && typeof value.rawFields === 'object' && !Array.isArray(value.rawFields)
+      ? (value.rawFields as Record<string, unknown>)
+      : undefined;
+  return {
+    auditLog,
+    lastManualEdit,
+    manuallyEdited: value.manuallyEdited ?? Boolean(lastManualEdit),
+    splitParentId: value.splitParentId ?? undefined,
+    splitIndex: value.splitIndex ?? undefined,
+    splitTotal: value.splitTotal ?? undefined,
+    rawFields: rawFields ?? undefined
+  };
+};
+
+const setWorkspaceMetadata = (
+  metadata: Transaction['metadata'],
+  workspace: WorkspaceMetadata
+): Record<string, unknown> => {
+  const base: Record<string, unknown> =
+    metadata && typeof metadata === 'object' && !Array.isArray(metadata)
+      ? { ...(metadata as Record<string, unknown>) }
+      : {};
+  base[WORKSPACE_METADATA_KEY] = {
+    ...workspace,
+    auditLog: workspace.auditLog?.map((entry) => ({ ...entry })),
+    rawFields: workspace.rawFields ? { ...workspace.rawFields } : workspace.rawFields
+  };
+  return base;
+};
+
+const mergeWorkspaceMetadata = (
+  metadata: Transaction['metadata'],
+  partial: Partial<WorkspaceMetadata>
+): Record<string, unknown> => {
+  const current = readWorkspaceMetadata(metadata);
+  const merged: WorkspaceMetadata = {
+    ...current,
+    ...partial,
+    auditLog: partial.auditLog ?? current.auditLog,
+    rawFields: partial.rawFields ?? current.rawFields
+  };
+  return setWorkspaceMetadata(metadata, merged);
+};
+
+const applyManualMetadata = (
+  transaction: Transaction,
+  fields: string[],
+  user: string,
+  auditEntries?: {
+    field: string;
+    previous?: string | null;
+    next?: string | null;
+  }[]
+): Transaction => {
+  if (!fields.length && !(auditEntries && auditEntries.length)) {
+    return transaction;
+  }
+  const timestamp = new Date().toISOString();
+  const fallback = fields.map((field) => ({ field, previous: null, next: null }));
+  const entries = (auditEntries && auditEntries.length ? auditEntries : fallback).map(
+    (entry) => ({
+      id: generateId('edit'),
+      field: entry.field,
+      previous: entry.previous ?? null,
+      next: entry.next ?? null,
+      user,
+      timestamp
+    })
+  );
+  const workspace = readWorkspaceMetadata(transaction.metadata);
+  const nextWorkspace: WorkspaceMetadata = {
+    ...workspace,
+    manuallyEdited: true,
+    auditLog: [...(workspace.auditLog ?? []), ...entries],
+    lastManualEdit: {
+      user,
+      timestamp,
+      fields: fields.length ? fields : entries.map((entry) => entry.field)
+    }
+  };
+  return {
+    ...transaction,
+    metadata: setWorkspaceMetadata(transaction.metadata, nextWorkspace)
+  };
+};
 
 const getActionField = (action: RuleAction): RuleActionField => {
   switch (action.type) {
@@ -1684,14 +1849,204 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     return transaction;
   };
 
-  const updateTransaction = (id: string, txn: Partial<Transaction>) => {
+  const updateTransaction = (
+    id: string,
+    txn: Partial<Transaction>,
+    options?: TransactionUpdateOptions
+  ) => {
+    const user = options?.user ?? 'Manual edit';
     updateState((prev) => ({
       ...prev,
-      transactions: prev.transactions.map((existing) =>
-        existing.id === id ? { ...existing, ...txn } : existing
-      )
+      transactions: prev.transactions.map((existing) => {
+        if (existing.id !== id) {
+          return existing;
+        }
+        const entriesSource = options?.auditEntries;
+        const resolvedEntries =
+          typeof entriesSource === 'function'
+            ? entriesSource(existing)
+            : entriesSource ?? [];
+        const next: Transaction = { ...existing, ...txn };
+        if (options?.manual) {
+          const fields = resolvedEntries.length
+            ? resolvedEntries.map((entry) => entry.field)
+            : Object.keys(txn);
+          return applyManualMetadata(next, fields, user, resolvedEntries);
+        }
+        return next;
+      })
     }));
     logInfo('Transaction updated', { id });
+  };
+
+  const bulkUpdateTransactions = (
+    ids: string[],
+    txn: Partial<Transaction>,
+    options?: TransactionUpdateOptions
+  ) => {
+    if (ids.length === 0) {
+      return;
+    }
+    const idSet = new Set(ids);
+    const user = options?.user ?? 'Bulk edit';
+    updateState((prev) => ({
+      ...prev,
+      transactions: prev.transactions.map((existing) => {
+        if (!idSet.has(existing.id)) {
+          return existing;
+        }
+        const entriesSource = options?.auditEntries;
+        const resolvedEntries =
+          typeof entriesSource === 'function'
+            ? entriesSource(existing)
+            : entriesSource ?? [];
+        const next: Transaction = { ...existing, ...txn };
+        if (options?.manual) {
+          const fields = resolvedEntries.length
+            ? resolvedEntries.map((entry) => entry.field)
+            : Object.keys(txn);
+          return applyManualMetadata(next, fields, user, resolvedEntries);
+        }
+        return next;
+      })
+    }));
+    logInfo('Transactions bulk updated', { count: ids.length });
+  };
+
+  const splitTransaction = (
+    id: string,
+    lines: TransactionSplitLineInput[],
+    user = 'Manual split'
+  ): DataActionError | null => {
+    if (lines.length < 2) {
+      return {
+        title: 'Two or more lines required',
+        description: 'Provide at least two split lines to replace the transaction.'
+      };
+    }
+
+    let error: DataActionError | null = null;
+
+    updateState((prev) => {
+      const index = prev.transactions.findIndex((txn) => txn.id === id);
+      if (index === -1) {
+        error = {
+          title: 'Transaction not found',
+          description: 'The transaction you are trying to split no longer exists.'
+        };
+        return prev;
+      }
+
+      const original = prev.transactions[index];
+      const total = lines.reduce((sum, line) => sum + line.amount, 0);
+      const tolerance = Math.max(Math.abs(original.amount) * 0.0001, 0.01);
+      if (Math.abs(total - original.amount) > tolerance) {
+        error = {
+          title: 'Split total mismatch',
+          description: 'Split amounts must add up to the original transaction amount.'
+        };
+        return prev;
+      }
+
+      const before = prev.transactions.slice(0, index);
+      const after = prev.transactions.slice(index + 1);
+      const workspaceSource = readWorkspaceMetadata(original.metadata);
+
+      const manualFieldsBase: string[] = ['split'];
+
+      const createdTransactions = lines.map((line, lineIndex) => {
+        const manualFields = [...manualFieldsBase];
+        if (line.categoryId !== undefined || line.subCategoryId !== undefined) {
+          manualFields.push('category');
+        }
+        if (line.payeeId !== undefined) {
+          manualFields.push('payee');
+        }
+        if (line.tags !== undefined) {
+          manualFields.push('tags');
+        }
+        if (line.memo !== undefined) {
+          manualFields.push('memo');
+        }
+
+        const child: Transaction = {
+          ...original,
+          id: generateId('txn'),
+          amount: line.amount,
+          nativeAmount: line.amount,
+          memo: line.memo ?? original.memo,
+          description: line.description ?? original.description,
+          categoryId: line.categoryId ?? original.categoryId,
+          subCategoryId: line.subCategoryId ?? original.subCategoryId,
+          payeeId: line.payeeId ?? original.payeeId,
+          tags: line.tags ? [...line.tags] : [...original.tags],
+          metadata: mergeWorkspaceMetadata(line.metadata ?? original.metadata, {
+            ...workspaceSource,
+            splitParentId: original.id,
+            splitIndex: lineIndex,
+            splitTotal: lines.length
+          })
+        };
+
+        const auditEntries: { field: string; previous?: string | null; next?: string | null }[] = [
+          {
+            field: 'split',
+            previous: original.amount.toString(),
+            next: line.amount.toString()
+          }
+        ];
+
+        if (line.categoryId !== undefined || line.subCategoryId !== undefined) {
+          auditEntries.push({
+            field: 'category',
+            previous: original.categoryId ?? null,
+            next: child.categoryId ?? null
+          });
+          if (child.subCategoryId || original.subCategoryId) {
+            auditEntries.push({
+              field: 'subCategory',
+              previous: original.subCategoryId ?? null,
+              next: child.subCategoryId ?? null
+            });
+          }
+        }
+
+        if (line.payeeId !== undefined) {
+          auditEntries.push({
+            field: 'payee',
+            previous: original.payeeId ?? null,
+            next: child.payeeId ?? null
+          });
+        }
+
+        if (line.tags !== undefined) {
+          auditEntries.push({
+            field: 'tags',
+            previous: original.tags.join(',') || null,
+            next: child.tags.join(',') || null
+          });
+        }
+
+        if (line.memo !== undefined) {
+          auditEntries.push({
+            field: 'memo',
+            previous: original.memo ?? null,
+            next: child.memo ?? null
+          });
+        }
+
+        return applyManualMetadata(child, manualFields, user, auditEntries);
+      });
+
+      logInfo('Transaction split', { id, count: createdTransactions.length });
+
+      return {
+        ...prev,
+        transactions: [...before, ...createdTransactions, ...after]
+      };
+    });
+
+    return error;
   };
 
   const archiveTransaction = (id: string) => {
@@ -1980,6 +2335,8 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       archiveTag,
       addTransaction,
       updateTransaction,
+      bulkUpdateTransactions,
+      splitTransaction,
       archiveTransaction,
       updateBaseCurrency,
       upsertExchangeRate,
