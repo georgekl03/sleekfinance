@@ -29,7 +29,7 @@ import {
   Tag,
   Transaction
 } from '../data/models';
-import { buildCategoryTree } from '../utils/categories';
+import { buildCategoryTree, getFlowTypeForMaster } from '../utils/categories';
 import { formatCurrency, formatDate } from '../utils/format';
 import '../styles/transactions.css';
 
@@ -1189,25 +1189,28 @@ const Transactions = () => {
 
   const masterFlowLookup = useMemo(() => {
     const lookup = new Map<string, RuleFlowType>();
-    state.categories.forEach((category) => {
-      if (category.archived) return;
-      const master = state.masterCategories.find((item) => item.id === category.masterCategoryId);
-      if (!master) return;
-      const name = master.name.toLocaleLowerCase();
-      if (name.includes('transfer')) {
-        lookup.set(category.masterCategoryId, 'transfer');
-      } else if (name.includes('interest')) {
-        lookup.set(category.masterCategoryId, 'interest');
-      } else if (name.includes('fee')) {
-        lookup.set(category.masterCategoryId, 'fees');
-      } else if (name.includes('income') || name.includes('inflow')) {
-        lookup.set(category.masterCategoryId, 'in');
-      } else {
-        lookup.set(category.masterCategoryId, 'out');
+    state.masterCategories.forEach((master) => {
+      const flow = getFlowTypeForMaster(master);
+      switch (flow) {
+        case 'interest':
+          lookup.set(master.id, 'interest');
+          break;
+        case 'transfers':
+          lookup.set(master.id, 'transfer');
+          break;
+        case 'out':
+          lookup.set(master.id, 'out');
+          break;
+        case 'in':
+          lookup.set(master.id, 'in');
+          break;
+        default:
+          lookup.set(master.id, 'out');
+          break;
       }
     });
     return lookup;
-  }, [state.categories, state.masterCategories]);
+  }, [state.masterCategories]);
 
   const [showBaseAmounts, setShowBaseAmounts] = useState(false);
   const [selectedTransactionIds, setSelectedTransactionIds] = useState<string[]>([]);

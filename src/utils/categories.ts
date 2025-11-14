@@ -5,7 +5,7 @@ import {
   Transaction
 } from '../data/models';
 
-export type FlowType = 'in' | 'out' | 'transfers' | 'other';
+export type FlowType = 'in' | 'interest' | 'out' | 'transfers' | 'other';
 
 export type CategoryTree = {
   master: MasterCategory;
@@ -35,17 +35,20 @@ export type CategoryRollupSummary = {
   uncategorisedTotal: number;
 };
 
-const FLOW_KEYWORDS: Record<FlowType, string[]> = {
-  in: ['income', 'inflow', 'interest', 'gain'],
+const FLOW_KEYWORDS: Record<Exclude<FlowType, 'other'>, string[]> = {
+  interest: ['interest', 'yield', 'dividend'],
+  in: ['income', 'inflow', 'gain', 'earning'],
   out: ['expense', 'spend', 'cost', 'fee', 'fees', 'essential', 'discretionary'],
-  transfers: ['transfer', 'movement', 'move', 'rebalanc', 'growth'],
-  other: []
+  transfers: ['transfer', 'movement', 'move', 'rebalanc', 'growth']
 };
 
 const normalise = (value: string) => value.trim().toLocaleLowerCase();
 
 export const getFlowTypeForMaster = (master: MasterCategory): FlowType => {
   const name = normalise(master.name);
+  if (FLOW_KEYWORDS.interest.some((keyword) => name.includes(keyword))) {
+    return 'interest';
+  }
   if (FLOW_KEYWORDS.in.some((keyword) => name.includes(keyword))) {
     return 'in';
   }

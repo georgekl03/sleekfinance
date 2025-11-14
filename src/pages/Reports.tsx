@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import PageHeader from '../components/PageHeader';
 import Tooltip from '../components/Tooltip';
 import { useData } from '../data/DataContext';
@@ -243,6 +244,19 @@ const Reports = () => {
             })
           )}
         </div>
+      </section>
+      <section className="content-card interest-preview-card">
+        <header className="allocation-report-card__header">
+          <div>
+            <h2>Interest analytics</h2>
+            <p className="muted-text">
+              Explore earned interest with multi-currency conversion, monthly trends, and UK tax-year totals.
+            </p>
+          </div>
+          <Link to="/interest" className="chip-button">
+            Open interest view
+          </Link>
+        </header>
       </section>
       <div className="content-card">
         <p>

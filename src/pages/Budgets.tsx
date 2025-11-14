@@ -53,6 +53,7 @@ const STATUS_LABELS: Record<BudgetLineStatus, string> = {
 
 const FLOW_LABELS: Record<BudgetLineMetric['flow'], string> = {
   in: 'Income',
+  interest: 'Interest',
   out: 'Expense',
   transfer: 'Transfer'
 };
@@ -448,6 +449,28 @@ const BudgetEditor = ({ budget, collections, onClose }: BudgetEditorProps) => {
     });
   };
 
+  const handleInterestBreakdown = (line: BudgetLineMetric) => {
+    const startIso = periodInfo.start.toISOString().slice(0, 10);
+    const endIso = periodInfo.end.toISOString().slice(0, 10);
+    const collectionIds = form.includeMode === 'collections' ? form.collectionIds : [];
+    navigate('/interest', {
+      state: {
+        interestFilters: {
+          start: startIso,
+          end: endIso,
+          accountIds: includedAccounts.map((account) => account.id),
+          collectionIds,
+          source: {
+            budgetId: budget.id,
+            lineId: line.line.id,
+            label: line.category?.name ?? 'Category',
+            periodLabel: periodInfo.label
+          }
+        }
+      }
+    });
+  };
+
   const formatDifference = (value: number) => {
     const formatted = formatCurrency(Math.abs(value), baseCurrency);
     if (value === 0) return formatted;
@@ -457,7 +480,7 @@ const BudgetEditor = ({ budget, collections, onClose }: BudgetEditorProps) => {
   const summary = computation.summary;
   const lineMetrics = computation.lines;
   const allocationBreakdowns = useMemo(() => {
-    const incomeLines = lineMetrics.filter((line) => line.flow === 'in');
+    const incomeLines = lineMetrics.filter((line) => line.flow === 'in' || line.flow === 'interest');
     if (incomeLines.length === 0) {
       return { lines: new Map<string, AllocationBreakdown>(), subLines: new Map<string, AllocationBreakdown>() };
     }
@@ -952,6 +975,15 @@ const BudgetEditor = ({ budget, collections, onClose }: BudgetEditorProps) => {
                   </div>
                   <div className="budget-line__meta">
                     <span>{FLOW_LABELS[line.flow]}</span>
+                    {line.flow === 'interest' ? (
+                      <button
+                        type="button"
+                        className="chip-button"
+                        onClick={() => handleInterestBreakdown(line)}
+                      >
+                        Interest analysis
+                      </button>
+                    ) : null}
                     <label className="budget-line__toggle">
                       <input
                         type="checkbox"
@@ -1009,7 +1041,7 @@ const BudgetEditor = ({ budget, collections, onClose }: BudgetEditorProps) => {
                       Remove line
                     </button>
                   </div>
-                  {line.flow === 'in' ? (
+                  {line.flow === 'in' || line.flow === 'interest' ? (
                     <div className="budget-line__allocations">
                       <div className="budget-line__allocations-header">
                         <h5>Allocation coverage</h5>
@@ -1164,7 +1196,7 @@ const BudgetEditor = ({ budget, collections, onClose }: BudgetEditorProps) => {
                                   Remove sub-line
                                 </button>
                               </div>
-                              {line.flow === 'in' ? (
+                              {line.flow === 'in' || line.flow === 'interest' ? (
                                 <div className="budget-subline__allocations">
                                   <div className="budget-line__allocations-header">
                                     <h6>Allocations</h6>

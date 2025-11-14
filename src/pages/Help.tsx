@@ -8,6 +8,25 @@ const Help = () => (
       description="Guides for managing accounts, budgets, providers, collections, categories, and payees."
     />
     <div className="content-card">
+      <h3>Interest analytics</h3>
+      <p className="muted-text">
+        The Interest view tracks transactions flagged as interest flows and keeps native currency amounts alongside
+        base-currency conversions. Use the range selector to switch between custom dates, calendar years, and the UK
+        tax-year (6 April → 5 April) cycle. Filters for accounts, providers, and collections make it easy to isolate
+        specific savings pots or investment cash balances. A monthly timeline groups totals by account or provider so
+        you can see which balances are pulling their weight, while the blended APR and 12-month projection provide an
+        approximate effective rate based on historic earnings.
+      </p>
+      <div className="help-diagram">
+        <strong>Tax-year report tips</strong>
+        <pre>{`Interest → UK tax-year tab
+Select year chips to jump between current and prior tax years
+Breakdowns show account, provider, and account-type subtotals
+All filters from the main view (accounts, providers, collections) remain in effect`}</pre>
+        <Tooltip label="Interest analytics are read-only; they never alter budgets or transaction data." />
+      </div>
+    </div>
+    <div className="content-card">
       <h3>Income Allocation Rules</h3>
       <p className="muted-text">
         Use the Allocations page to define how inflows are analytically split across purposes

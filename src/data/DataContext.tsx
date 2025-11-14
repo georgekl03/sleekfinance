@@ -48,6 +48,7 @@ import {
 import { buildDemoOnlyData, buildInitialState, MASTER_CATEGORIES } from './demoData';
 import { generateId } from '../utils/id';
 import { logError, logInfo } from '../utils/logger';
+import { getFlowTypeForMaster } from '../utils/categories';
 import {
   applyBudgetPeriodDraft,
   buildBudgetPeriodState
@@ -996,12 +997,19 @@ const resolveFlowType = (
     if (category) {
       const master = context.masterById.get(category.masterCategoryId);
       if (master) {
-        const name = normalise(master.name);
-        if (name.includes('interest')) return 'interest';
-        if (name.includes('fee')) return 'fees';
-        if (name.includes('transfer')) return 'transfer';
-        if (name.includes('income') || name.includes('inflow')) return 'in';
-        if (name.includes('expense') || name.includes('spend') || name.includes('out')) return 'out';
+        const flow = getFlowTypeForMaster(master);
+        switch (flow) {
+          case 'interest':
+            return 'interest';
+          case 'transfers':
+            return 'transfer';
+          case 'in':
+            return 'in';
+          case 'out':
+            return 'out';
+          default:
+            break;
+        }
       }
     }
   }
@@ -1356,7 +1364,8 @@ const runAllocationEngine = ({
   const appliedAt = new Date().toISOString();
 
   transactions.forEach((transaction) => {
-    if (resolveFlowType(transaction, context) !== 'in') {
+    const flowType = resolveFlowType(transaction, context);
+    if (flowType !== 'in' && flowType !== 'interest') {
       return;
     }
     const account = context.accountsById.get(transaction.accountId);
@@ -3571,7 +3580,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       }
 
       const flow = resolveFlowType(updatedTransaction, context);
-      if (flow !== 'in') {
+      if (flow !== 'in' && flow !== 'interest') {
         removedAllocations = prev.transactionAllocations.filter(
           (record) => record.transactionId === id
         ).length;
@@ -3656,9 +3665,10 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         idSet.has(record.transactionId)
       ).length;
 
-      const inflowTransactions = updatedTransactions.filter(
-        (transaction) => resolveFlowType(transaction, context) === 'in'
-      );
+      const inflowTransactions = updatedTransactions.filter((transaction) => {
+        const flow = resolveFlowType(transaction, context);
+        return flow === 'in' || flow === 'interest';
+      });
 
       if (!inflowTransactions.length) {
         return {
@@ -3821,9 +3831,10 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         return applyManualMetadata(child, manualFields, user, auditEntries);
       });
 
-      const inflowTransactions = createdTransactions.filter(
-        (transaction) => resolveFlowType(transaction, context) === 'in'
-      );
+      const inflowTransactions = createdTransactions.filter((transaction) => {
+        const flow = resolveFlowType(transaction, context);
+        return flow === 'in' || flow === 'interest';
+      });
       const baseAllocations = prev.transactionAllocations.filter(
         (record) => record.transactionId !== id
       );
