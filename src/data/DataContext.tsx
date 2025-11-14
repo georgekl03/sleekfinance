@@ -24,6 +24,9 @@ import {
   CurrencyCode,
   DataActionError,
   DataState,
+  InvestmentHolding,
+  InvestmentPrice,
+  InvestmentSale,
   ImportBatch,
   ImportDefaults,
   ImportFormatOptions,
@@ -90,6 +93,40 @@ export type TransactionSplitLineInput = {
   tags?: string[];
   description?: string | null;
   metadata?: Record<string, unknown>;
+};
+
+type CreateInvestmentHoldingInput = {
+  accountId: string;
+  symbol: string;
+  name?: string | null;
+  assetType?: string | null;
+  quantity: number;
+  totalCost: number;
+  costCurrency: CurrencyCode;
+  priceCurrency: CurrencyCode;
+  notes?: string | null;
+};
+
+type UpdateInvestmentHoldingInput = Partial<CreateInvestmentHoldingInput> & {
+  quantity?: number;
+  totalCost?: number;
+};
+
+type RecordInvestmentSaleInput = {
+  holdingId: string;
+  quantity: number;
+  proceeds: number;
+  proceedsCurrency: CurrencyCode;
+  saleDate: string;
+  notes?: string | null;
+};
+
+type UpsertInvestmentPriceInput = {
+  symbol: string;
+  price: number;
+  currency: CurrencyCode;
+  priceDate?: string;
+  source?: string | null;
 };
 
 const createDefaultImportDefaults = (): ImportDefaults => ({
@@ -571,6 +608,180 @@ const migrateState = (state: DataState): DataState => {
     })
     .filter((record): record is TransactionAllocation => Boolean(record && record.transactionId && record.ruleId && record.purposeId));
 
+  const sanitizeCurrency = (value: unknown, fallback: string): string => {
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim().toUpperCase();
+    }
+    return fallback;
+  };
+
+  const holdings: InvestmentHolding[] = [];
+  if (Array.isArray((state as { investmentHoldings?: InvestmentHolding[] }).investmentHoldings)) {
+    ((state as { investmentHoldings?: InvestmentHolding[] }).investmentHoldings as InvestmentHolding[]).forEach(
+      (holding) => {
+        if (!holding || typeof holding !== 'object') {
+          return;
+        }
+        const accountId = typeof holding.accountId === 'string' ? holding.accountId : '';
+        const symbol = typeof holding.symbol === 'string' ? holding.symbol.trim().toUpperCase() : '';
+        if (!accountId || !symbol) {
+          return;
+        }
+        const quantity = Number((holding as { quantity?: unknown }).quantity ?? 0);
+        if (!Number.isFinite(quantity) || quantity < 0) {
+          return;
+        }
+        const totalCost = Number((holding as { totalCost?: unknown }).totalCost ?? 0);
+        if (!Number.isFinite(totalCost) || totalCost < 0) {
+          return;
+        }
+        const costCurrency = sanitizeCurrency(
+          (holding as { costCurrency?: unknown }).costCurrency,
+          mergedSettings.baseCurrency
+        );
+        const priceCurrency = sanitizeCurrency(
+          (holding as { priceCurrency?: unknown }).priceCurrency,
+          costCurrency
+        );
+        const createdAt =
+          typeof (holding as { createdAt?: unknown }).createdAt === 'string'
+            ? ((holding as { createdAt?: string }).createdAt as string)
+            : new Date().toISOString();
+        const updatedAt =
+          typeof (holding as { updatedAt?: unknown }).updatedAt === 'string'
+            ? ((holding as { updatedAt?: string }).updatedAt as string)
+            : createdAt;
+        holdings.push({
+          id: typeof holding.id === 'string' && holding.id ? holding.id : generateId('hold'),
+          accountId,
+          symbol,
+          name:
+            typeof (holding as { name?: unknown }).name === 'string'
+              ? ((holding as { name?: string }).name as string)
+              : null,
+          assetType:
+            typeof (holding as { assetType?: unknown }).assetType === 'string'
+              ? ((holding as { assetType?: string }).assetType as string)
+              : null,
+          quantity,
+          totalCost,
+          costCurrency,
+          priceCurrency,
+          notes:
+            typeof (holding as { notes?: unknown }).notes === 'string'
+              ? ((holding as { notes?: string }).notes as string)
+              : null,
+          archived: Boolean((holding as { archived?: unknown }).archived),
+          createdAt,
+          updatedAt,
+          isDemo: Boolean((holding as { isDemo?: unknown }).isDemo)
+        });
+      }
+    );
+  }
+
+  const prices: InvestmentPrice[] = [];
+  if (Array.isArray((state as { investmentPrices?: InvestmentPrice[] }).investmentPrices)) {
+    ((state as { investmentPrices?: InvestmentPrice[] }).investmentPrices as InvestmentPrice[]).forEach((price) => {
+      if (!price || typeof price !== 'object') {
+        return;
+      }
+      const symbol = typeof price.symbol === 'string' ? price.symbol.trim().toUpperCase() : '';
+      if (!symbol) {
+        return;
+      }
+      const amount = Number((price as { price?: unknown }).price ?? 0);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        return;
+      }
+      const currency = sanitizeCurrency(
+        (price as { currency?: unknown }).currency,
+        mergedSettings.baseCurrency
+      );
+      const priceDate =
+        typeof (price as { priceDate?: unknown }).priceDate === 'string'
+          ? ((price as { priceDate?: string }).priceDate as string)
+          : new Date().toISOString().slice(0, 10);
+      const createdAt =
+        typeof (price as { createdAt?: unknown }).createdAt === 'string'
+          ? ((price as { createdAt?: string }).createdAt as string)
+          : new Date().toISOString();
+      prices.push({
+        id: typeof price.id === 'string' && price.id ? price.id : generateId('price'),
+        symbol,
+        price: amount,
+        currency,
+        priceDate,
+        source:
+          typeof (price as { source?: unknown }).source === 'string'
+            ? ((price as { source?: string }).source as string)
+            : null,
+        createdAt
+      });
+    });
+  }
+
+  const sales: InvestmentSale[] = [];
+  if (Array.isArray((state as { investmentSales?: InvestmentSale[] }).investmentSales)) {
+    ((state as { investmentSales?: InvestmentSale[] }).investmentSales as InvestmentSale[]).forEach((sale) => {
+      if (!sale || typeof sale !== 'object') {
+        return;
+      }
+      const holdingId = typeof sale.holdingId === 'string' ? sale.holdingId : '';
+      if (!holdingId) {
+        return;
+      }
+      const quantity = Number((sale as { quantity?: unknown }).quantity ?? 0);
+      if (!Number.isFinite(quantity) || quantity <= 0) {
+        return;
+      }
+      const proceeds = Number((sale as { proceeds?: unknown }).proceeds ?? 0);
+      const costBasis = Number((sale as { costBasis?: unknown }).costBasis ?? 0);
+      if (!Number.isFinite(proceeds) || proceeds < 0 || !Number.isFinite(costBasis) || costBasis < 0) {
+        return;
+      }
+      const proceedsCurrency = sanitizeCurrency(
+        (sale as { proceedsCurrency?: unknown }).proceedsCurrency,
+        mergedSettings.baseCurrency
+      );
+      const costCurrency = sanitizeCurrency(
+        (sale as { costCurrency?: unknown }).costCurrency,
+        mergedSettings.baseCurrency
+      );
+      const baseCurrency = sanitizeCurrency(
+        (sale as { baseCurrency?: unknown }).baseCurrency,
+        mergedSettings.baseCurrency
+      );
+      const saleDate =
+        typeof (sale as { saleDate?: unknown }).saleDate === 'string'
+          ? ((sale as { saleDate?: string }).saleDate as string)
+          : new Date().toISOString().slice(0, 10);
+      const createdAt =
+        typeof (sale as { createdAt?: unknown }).createdAt === 'string'
+          ? ((sale as { createdAt?: string }).createdAt as string)
+          : new Date().toISOString();
+      sales.push({
+        id: typeof sale.id === 'string' && sale.id ? sale.id : generateId('sale'),
+        holdingId,
+        saleDate,
+        quantity,
+        proceeds,
+        proceedsCurrency,
+        proceedsBase: Number((sale as { proceedsBase?: unknown }).proceedsBase ?? 0),
+        costBasis,
+        costCurrency,
+        costBasisBase: Number((sale as { costBasisBase?: unknown }).costBasisBase ?? 0),
+        realisedBase: Number((sale as { realisedBase?: unknown }).realisedBase ?? 0),
+        baseCurrency,
+        notes:
+          typeof (sale as { notes?: unknown }).notes === 'string'
+            ? ((sale as { notes?: string }).notes as string)
+            : null,
+        createdAt
+      });
+    });
+  }
+
   return {
     ...(restState as DataState),
     accounts,
@@ -579,6 +790,9 @@ const migrateState = (state: DataState): DataState => {
     transactions,
     allocationRules,
     transactionAllocations,
+    investmentHoldings: holdings,
+    investmentPrices: prices,
+    investmentSales: sales,
     importBatches: state.importBatches ?? [],
     rules: state.rules ?? [],
     ruleLogs: state.ruleLogs ?? [],
@@ -722,6 +936,15 @@ type DataContextValue = {
   createTag: (input: CreateTagInput) => DataActionError | null;
   updateTag: (id: string, input: UpdateTagInput) => DataActionError | null;
   archiveTag: (id: string) => void;
+  createInvestmentHolding: (input: CreateInvestmentHoldingInput) => DataActionError | null;
+  updateInvestmentHolding: (
+    id: string,
+    input: UpdateInvestmentHoldingInput
+  ) => DataActionError | null;
+  archiveInvestmentHolding: (id: string) => void;
+  restoreInvestmentHolding: (id: string) => void;
+  recordInvestmentSale: (input: RecordInvestmentSaleInput) => DataActionError | null;
+  upsertInvestmentPrice: (input: UpsertInvestmentPriceInput) => DataActionError | null;
   addTransaction: (txn: Omit<Transaction, 'id'>) => Transaction;
   updateTransaction: (
     id: string,
@@ -2957,6 +3180,350 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     logInfo('Tag archived', { id });
   };
 
+  const buildExchangeRateMap = () => {
+    const map = new Map<string, number>();
+    state.settings.exchangeRates.forEach((entry) => {
+      map.set(entry.currency.toUpperCase(), entry.rateToBase);
+    });
+    const base = state.settings.baseCurrency.toUpperCase();
+    if (!map.has(base)) {
+      map.set(base, 1);
+    }
+    return map;
+  };
+
+  const convertToBaseAmount = (
+    amount: number,
+    currency: CurrencyCode,
+    rateMap: Map<string, number>
+  ) => {
+    const rate = rateMap.get(currency.toUpperCase()) ?? 1;
+    return amount * rate;
+  };
+
+  const createInvestmentHolding = (
+    input: CreateInvestmentHoldingInput
+  ): DataActionError | null => {
+    const account = state.accounts.find((acct) => acct.id === input.accountId);
+    if (!account) {
+      return { title: 'Account missing', description: 'Choose a valid investment account.' };
+    }
+    if (account.type !== 'investment') {
+      return {
+        title: 'Invalid account type',
+        description: 'Holdings can only be added to investment accounts.'
+      };
+    }
+
+    const symbol = input.symbol.trim().toUpperCase();
+    if (!symbol) {
+      return { title: 'Symbol required', description: 'Enter a ticker or instrument identifier.' };
+    }
+
+    if (!Number.isFinite(input.quantity) || input.quantity <= 0) {
+      return {
+        title: 'Invalid quantity',
+        description: 'Quantity must be a positive number.'
+      };
+    }
+
+    if (!Number.isFinite(input.totalCost) || input.totalCost < 0) {
+      return {
+        title: 'Invalid cost basis',
+        description: 'Cost basis must be zero or a positive number.'
+      };
+    }
+
+    const costCurrency = input.costCurrency
+      ? input.costCurrency.trim().toUpperCase()
+      : account.currency;
+    const priceCurrency = input.priceCurrency
+      ? input.priceCurrency.trim().toUpperCase()
+      : costCurrency;
+
+    const now = new Date().toISOString();
+    const holding: InvestmentHolding = {
+      id: generateId('hold'),
+      accountId: account.id,
+      symbol,
+      name: input.name?.trim() ? input.name.trim() : null,
+      assetType: input.assetType?.trim() ? input.assetType.trim() : null,
+      quantity: input.quantity,
+      totalCost: input.totalCost,
+      costCurrency,
+      priceCurrency,
+      notes: input.notes?.trim() ? input.notes.trim() : null,
+      archived: false,
+      createdAt: now,
+      updatedAt: now,
+      isDemo: false
+    };
+
+    updateState((prev) => ({
+      ...prev,
+      investmentHoldings: [...prev.investmentHoldings, holding]
+    }));
+    logInfo('Investment holding created', { id: holding.id, symbol, accountId: account.id });
+    return null;
+  };
+
+  const updateInvestmentHolding = (
+    id: string,
+    input: UpdateInvestmentHoldingInput
+  ): DataActionError | null => {
+    const existing = state.investmentHoldings.find((holding) => holding.id === id);
+    if (!existing) {
+      return {
+        title: 'Holding missing',
+        description: 'Select a valid holding to update.'
+      };
+    }
+
+    const targetAccountId = input.accountId ?? existing.accountId;
+    const account = state.accounts.find((acct) => acct.id === targetAccountId);
+    if (!account) {
+      return { title: 'Account missing', description: 'Choose a valid investment account.' };
+    }
+    if (account.type !== 'investment') {
+      return {
+        title: 'Invalid account type',
+        description: 'Holdings can only reside in investment accounts.'
+      };
+    }
+
+    const symbol = input.symbol !== undefined
+      ? input.symbol.trim().toUpperCase()
+      : existing.symbol;
+    if (!symbol) {
+      return { title: 'Symbol required', description: 'Enter a ticker or instrument identifier.' };
+    }
+
+    let quantity = existing.quantity;
+    if (input.quantity !== undefined) {
+      const parsed = Number(input.quantity);
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        return {
+          title: 'Invalid quantity',
+          description: 'Quantity must be zero or a positive number.'
+        };
+      }
+      quantity = parsed;
+    }
+
+    let totalCost = existing.totalCost;
+    if (input.totalCost !== undefined) {
+      const parsed = Number(input.totalCost);
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        return {
+          title: 'Invalid cost basis',
+          description: 'Cost basis must be zero or a positive number.'
+        };
+      }
+      totalCost = parsed;
+    }
+
+    const costCurrency = input.costCurrency
+      ? input.costCurrency.trim().toUpperCase()
+      : existing.costCurrency;
+    const priceCurrency = input.priceCurrency
+      ? input.priceCurrency.trim().toUpperCase()
+      : existing.priceCurrency;
+
+    updateState((prev) => ({
+      ...prev,
+      investmentHoldings: prev.investmentHoldings.map((holding) =>
+        holding.id === id
+          ? {
+              ...holding,
+              accountId: account.id,
+              symbol,
+              name:
+                input.name !== undefined
+                  ? input.name?.trim()
+                    ? input.name.trim()
+                    : null
+                  : holding.name ?? null,
+              assetType:
+                input.assetType !== undefined
+                  ? input.assetType?.trim()
+                    ? input.assetType.trim()
+                    : null
+                  : holding.assetType ?? null,
+              quantity,
+              totalCost,
+              costCurrency,
+              priceCurrency,
+              notes:
+                input.notes !== undefined
+                  ? input.notes?.trim()
+                    ? input.notes.trim()
+                    : null
+                  : holding.notes ?? null,
+              updatedAt: new Date().toISOString()
+            }
+          : holding
+      )
+    }));
+    logInfo('Investment holding updated', { id, accountId: account.id });
+    return null;
+  };
+
+  const archiveInvestmentHolding = (id: string) => {
+    updateState((prev) => ({
+      ...prev,
+      investmentHoldings: prev.investmentHoldings.map((holding) =>
+        holding.id === id
+          ? { ...holding, archived: true, updatedAt: new Date().toISOString() }
+          : holding
+      )
+    }));
+    logInfo('Investment holding archived', { id });
+  };
+
+  const restoreInvestmentHolding = (id: string) => {
+    updateState((prev) => ({
+      ...prev,
+      investmentHoldings: prev.investmentHoldings.map((holding) =>
+        holding.id === id
+          ? { ...holding, archived: false, updatedAt: new Date().toISOString() }
+          : holding
+      )
+    }));
+    logInfo('Investment holding restored', { id });
+  };
+
+  const recordInvestmentSale = (
+    input: RecordInvestmentSaleInput
+  ): DataActionError | null => {
+    const holding = state.investmentHoldings.find((entry) => entry.id === input.holdingId);
+    if (!holding) {
+      return {
+        title: 'Holding missing',
+        description: 'Select a holding before recording a sale.'
+      };
+    }
+
+    const quantity = Number(input.quantity);
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      return {
+        title: 'Invalid quantity',
+        description: 'Sale quantity must be a positive number.'
+      };
+    }
+
+    if (quantity > holding.quantity + 1e-6) {
+      return {
+        title: 'Quantity exceeds holding',
+        description: 'You cannot sell more units than are currently held.'
+      };
+    }
+
+    const proceeds = Number(input.proceeds);
+    if (!Number.isFinite(proceeds) || proceeds < 0) {
+      return {
+        title: 'Invalid proceeds',
+        description: 'Sale proceeds must be zero or a positive number.'
+      };
+    }
+
+    const proceedsCurrency = input.proceedsCurrency
+      ? input.proceedsCurrency.trim().toUpperCase()
+      : holding.priceCurrency;
+    const saleDate = input.saleDate?.trim() || new Date().toISOString().slice(0, 10);
+
+    const costPerUnit = holding.quantity > 0 ? holding.totalCost / holding.quantity : 0;
+    const costBasis = costPerUnit * quantity;
+    const remainingQuantity = holding.quantity - quantity;
+    const remainingCost = holding.totalCost - costBasis;
+    const adjustedQuantity = remainingQuantity < 1e-6 ? 0 : Number(remainingQuantity);
+    const adjustedCost = adjustedQuantity === 0 ? 0 : Math.max(0, remainingCost);
+
+    const rateMap = buildExchangeRateMap();
+    const proceedsBase = convertToBaseAmount(proceeds, proceedsCurrency, rateMap);
+    const costBasisBase = convertToBaseAmount(costBasis, holding.costCurrency, rateMap);
+    const realisedBase = proceedsBase - costBasisBase;
+    const timestamp = new Date().toISOString();
+
+    const sale: InvestmentSale = {
+      id: generateId('sale'),
+      holdingId: holding.id,
+      saleDate,
+      quantity,
+      proceeds,
+      proceedsCurrency,
+      proceedsBase,
+      costBasis,
+      costCurrency: holding.costCurrency,
+      costBasisBase,
+      realisedBase,
+      baseCurrency: state.settings.baseCurrency,
+      notes: input.notes?.trim() ? input.notes.trim() : null,
+      createdAt: timestamp
+    };
+
+    updateState((prev) => ({
+      ...prev,
+      investmentHoldings: prev.investmentHoldings.map((entry) =>
+        entry.id === holding.id
+          ? {
+              ...entry,
+              quantity: adjustedQuantity,
+              totalCost: adjustedCost,
+              updatedAt: timestamp
+            }
+          : entry
+      ),
+      investmentSales: [...prev.investmentSales, sale]
+    }));
+    logInfo('Investment sale recorded', {
+      id: sale.id,
+      holdingId: holding.id,
+      quantity,
+      proceeds
+    });
+    return null;
+  };
+
+  const upsertInvestmentPrice = (
+    input: UpsertInvestmentPriceInput
+  ): DataActionError | null => {
+    const symbol = input.symbol.trim().toUpperCase();
+    if (!symbol) {
+      return { title: 'Symbol required', description: 'Enter a ticker or instrument identifier.' };
+    }
+
+    const price = Number(input.price);
+    if (!Number.isFinite(price) || price <= 0) {
+      return {
+        title: 'Invalid price',
+        description: 'Enter a positive price per unit.'
+      };
+    }
+
+    const currency = input.currency
+      ? input.currency.trim().toUpperCase()
+      : state.settings.baseCurrency;
+    const priceDate = input.priceDate?.trim() || new Date().toISOString().slice(0, 10);
+    const timestamp = new Date().toISOString();
+
+    const entry: InvestmentPrice = {
+      id: generateId('price'),
+      symbol,
+      price,
+      currency,
+      priceDate,
+      source: input.source?.trim() ? input.source.trim() : null,
+      createdAt: timestamp
+    };
+
+    updateState((prev) => ({
+      ...prev,
+      investmentPrices: [...prev.investmentPrices, entry]
+    }));
+    logInfo('Investment price captured', { id: entry.id, symbol, currency });
+    return null;
+  };
+
   const createRule = (): Rule => {
     const priorities = state.rules.map((rule) => rule.priority);
     const nextPriority = priorities.length ? Math.max(...priorities) + 10 : 10;
@@ -4179,6 +4746,12 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       createTag,
       updateTag,
       archiveTag,
+      createInvestmentHolding,
+      updateInvestmentHolding,
+      archiveInvestmentHolding,
+      restoreInvestmentHolding,
+      recordInvestmentSale,
+      upsertInvestmentPrice,
       addTransaction,
       updateTransaction,
       bulkUpdateTransactions,

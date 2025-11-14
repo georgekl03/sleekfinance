@@ -7,6 +7,9 @@ import {
   Category,
   CurrencyCode,
   DataState,
+  InvestmentHolding,
+  InvestmentPrice,
+  InvestmentSale,
   ImportDefaults,
   MasterCategory,
   Payee,
@@ -61,6 +64,9 @@ type DemoBuildResult = {
   budgetLines: BudgetLine[];
   payees: Payee[];
   tags: Tag[];
+  investmentHoldings: InvestmentHolding[];
+  investmentPrices: InvestmentPrice[];
+  investmentSales: InvestmentSale[];
   transactions: Transaction[];
   allocationRules: AllocationRule[];
   transactionAllocations: TransactionAllocation[];
@@ -493,6 +499,9 @@ const buildDemoData = (): DemoBuildResult => {
     budgetLines,
     payees,
     tags,
+    investmentHoldings: [],
+    investmentPrices: [],
+    investmentSales: [],
     transactions,
     allocationRules,
     transactionAllocations,
@@ -515,6 +524,9 @@ export const buildInitialState = (): DataState => {
     budgetLines: demo.budgetLines,
     payees: demo.payees,
     tags: demo.tags,
+    investmentHoldings: [],
+    investmentPrices: [],
+    investmentSales: [],
     transactions: demo.transactions,
     allocationRules: demo.allocationRules,
     transactionAllocations: demo.transactionAllocations,

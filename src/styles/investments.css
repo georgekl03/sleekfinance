@@ -1,0 +1,214 @@
+.investments-page {
+  gap: 1.5rem;
+}
+
+.portfolio-summary .summary-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.summary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: center;
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--muted-foreground, #a3b3c2);
+}
+
+.portfolio-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.summary-tile {
+  background: rgba(30, 41, 59, 0.5);
+  border-radius: 0.75rem;
+  padding: 1rem;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.summary-breakdowns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1.5rem;
+  margin-top: 1.5rem;
+}
+
+.summary-breakdowns ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.summary-breakdowns li {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+}
+
+.filters-card .filters-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.filters-card select {
+  min-height: 6rem;
+}
+
+.filters-actions {
+  margin-top: 1rem;
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+.investments-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 960px;
+}
+
+.investments-table th,
+.investments-table td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+  text-align: left;
+}
+
+.investments-table thead th {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted-foreground, #94a3b8);
+}
+
+.investments-table .numeric {
+  text-align: right;
+}
+
+.account-row td {
+  background: rgba(15, 23, 42, 0.6);
+  font-weight: 600;
+  position: sticky;
+  left: 0;
+}
+
+.account-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+}
+
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.archived-row {
+  opacity: 0.55;
+}
+
+.muted-text.positive {
+  color: #10b981;
+}
+
+.muted-text.negative,
+.numeric.negative {
+  color: #f97316;
+}
+
+.numeric.positive {
+  color: #10b981;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.form-grid label {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.inline-inputs {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.inline-inputs select,
+.inline-inputs input {
+  flex: 1;
+}
+
+.notes-field {
+  grid-column: 1 / -1;
+}
+
+.form-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.form-error {
+  grid-column: 1 / -1;
+  color: #f97316;
+  background: rgba(249, 115, 22, 0.12);
+  border-radius: 0.75rem;
+  padding: 0.75rem 1rem;
+}
+
+.form-summary {
+  grid-column: 1 / -1;
+  background: rgba(37, 99, 235, 0.12);
+  border-radius: 0.75rem;
+  padding: 0.75rem 1rem;
+  color: #60a5fa;
+}
+
+.file-input {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.file-input input {
+  display: none;
+}
+
+.symbol-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.prices-table {
+  min-width: 480px;
+}
