@@ -10,6 +10,9 @@ import {
   Account,
   AccountCollection,
   Budget,
+  BudgetLine,
+  BudgetLineMode,
+  BudgetLineSubLine,
   BudgetInclusionMode,
   BudgetPeriodType,
   Category,
@@ -230,11 +233,78 @@ const migrateState = (state: DataState): DataState => {
           name: budget.name?.trim() || 'Untitled budget',
           includeMode,
           collectionIds: includeMode === 'collections' ? uniqueCollections : [],
+          rolloverEnabled: Boolean(budget.rolloverEnabled),
+          isPrimary: Boolean(budget.isPrimary),
           archived: Boolean(budget.archived),
           createdAt,
           updatedAt
         } satisfies Budget;
       })
+    : [];
+
+  if (budgets.length > 0 && !budgets.some((budget) => budget.isPrimary)) {
+    budgets[0] = { ...budgets[0], isPrimary: true };
+  }
+
+  const rawBudgetLines = (state as unknown as { budgetLines?: BudgetLine[] }).budgetLines ?? [];
+  const budgetLines = Array.isArray(rawBudgetLines)
+    ? rawBudgetLines
+        .map((line, index) => {
+          if (!line || typeof line !== 'object') {
+            return null;
+          }
+          const plannedEntries = Object.entries(line.plannedAmounts ?? {}).filter(([, value]) =>
+            Number.isFinite(Number(value))
+          );
+          const plannedAmounts = plannedEntries.reduce<Record<string, number>>((acc, [key, value]) => {
+            const numeric = Number(value);
+            if (Number.isFinite(numeric)) {
+              acc[key] = numeric;
+            }
+            return acc;
+          }, {});
+          const subLines = Array.isArray(line.subLines)
+            ? line.subLines
+                .map((sub) => {
+                  if (!sub || typeof sub !== 'object') {
+                    return null;
+                  }
+                  const subPlannedEntries = Object.entries(sub.plannedAmounts ?? {}).filter(([, value]) =>
+                    Number.isFinite(Number(value))
+                  );
+                  const subPlanned = subPlannedEntries.reduce<Record<string, number>>(
+                    (acc, [key, value]) => {
+                      const numeric = Number(value);
+                      if (Number.isFinite(numeric)) {
+                        acc[key] = numeric;
+                      }
+                      return acc;
+                    },
+                    {}
+                  );
+                  return {
+                    id: sub.id ?? generateId('bdl-sub'),
+                    subCategoryId: sub.subCategoryId ?? '',
+                    plannedAmounts: subPlanned,
+                    createdAt: sub.createdAt ?? new Date().toISOString(),
+                    updatedAt: sub.updatedAt ?? sub.createdAt ?? new Date().toISOString()
+                  } satisfies BudgetLineSubLine;
+                })
+                .filter((sub): sub is BudgetLineSubLine => Boolean(sub && sub.subCategoryId))
+            : [];
+          return {
+            id: line.id ?? generateId('bdl'),
+            budgetId: line.budgetId ?? '',
+            categoryId: line.categoryId ?? '',
+            mode: line.mode === 'breakdown' ? 'breakdown' : 'single',
+            plannedAmounts,
+            subLines,
+            order: typeof line.order === 'number' ? line.order : index,
+            createdAt: line.createdAt ?? new Date().toISOString(),
+            updatedAt: line.updatedAt ?? line.createdAt ?? new Date().toISOString()
+          } satisfies BudgetLine;
+        })
+        .filter((line): line is BudgetLine => Boolean(line && line.budgetId && line.categoryId))
     : [];
 
   const existingDirectory = Array.isArray((state as unknown as { providerDirectory?: string[] }).providerDirectory)
@@ -256,6 +326,7 @@ const migrateState = (state: DataState): DataState => {
     ...(restState as DataState),
     accounts,
     budgets,
+    budgetLines,
     transactions,
     importBatches: state.importBatches ?? [],
     rules: state.rules ?? [],
@@ -301,6 +372,8 @@ type CreateBudgetInput = {
   anchorDate?: string;
   includeMode: BudgetInclusionMode;
   collectionIds: string[];
+  rolloverEnabled?: boolean;
+  isPrimary?: boolean;
 };
 
 type UpdateBudgetInput = Partial<CreateBudgetInput> & {
@@ -363,10 +436,19 @@ type DataContextValue = {
   setCollectionsForAccount: (accountId: string, collectionIds: string[]) => DataActionError | null;
   createBudget: (input?: Partial<CreateBudgetInput>) => Budget;
   updateBudget: (id: string, input: UpdateBudgetInput) => DataActionError | null;
+  setPrimaryBudget: (id: string) => void;
   duplicateBudget: (id: string) => Budget | null;
   archiveBudget: (id: string) => void;
   restoreBudget: (id: string) => void;
   deleteBudget: (id: string) => void;
+  createBudgetLine: (budgetId: string, categoryId: string) => BudgetLine | null;
+  removeBudgetLine: (id: string) => void;
+  setBudgetLineMode: (id: string, mode: BudgetLineMode) => void;
+  setBudgetLinePlannedAmount: (id: string, periodKey: string, amount: number) => void;
+  reorderBudgetLines: (budgetId: string, orderedIds: string[]) => void;
+  createBudgetSubLine: (lineId: string, subCategoryId: string) => BudgetLineSubLine | null;
+  removeBudgetSubLine: (lineId: string, subLineId: string) => void;
+  setBudgetSubLinePlannedAmount: (id: string, periodKey: string, amount: number) => void;
   createAccountCollection: (
     input: CreateAccountCollectionInput
   ) => DataActionError | null;
@@ -1332,20 +1414,34 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
           state.accountCollections.some((collection) => collection.id === collectionId)
         )
       : [];
+    const hasPrimary = state.budgets.some((budget) => budget.isPrimary);
+    const shouldBePrimary = input?.isPrimary ?? !hasPrimary;
     const budget: Budget = {
       id: generateId('bdg'),
       name,
       ...periodState,
       includeMode,
       collectionIds: Array.from(new Set(validCollections)),
+      rolloverEnabled: Boolean(input?.rolloverEnabled),
+      isPrimary: shouldBePrimary,
       archived: false,
       createdAt: now.toISOString(),
       updatedAt: now.toISOString()
     };
 
-    updateState((prev) => ({ ...prev, budgets: [...prev.budgets, budget] }));
+    const finalBudget = shouldBePrimary ? { ...budget, isPrimary: true } : budget;
+
+    updateState((prev) => {
+      const appended = [...prev.budgets, finalBudget];
+      const budgets = shouldBePrimary
+        ? appended.map((entry) =>
+            entry.id === finalBudget.id ? entry : { ...entry, isPrimary: false }
+          )
+        : appended;
+      return { ...prev, budgets };
+    });
     logInfo('Budget created', { id: budget.id });
-    return budget;
+    return finalBudget;
   };
 
   const updateBudget = (
@@ -1404,6 +1500,8 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         name: trimmedName ?? budget.name,
         includeMode,
         collectionIds,
+        rolloverEnabled: input.rolloverEnabled ?? budget.rolloverEnabled,
+        isPrimary: budget.isPrimary,
         archived: input.archived ?? budget.archived,
         createdAt: budget.createdAt,
         updatedAt: new Date().toISOString()
@@ -1420,6 +1518,35 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     return null;
   };
 
+  const setPrimaryBudget = (id: string) => {
+    const timestamp = new Date().toISOString();
+    updateState((prev) => {
+      if (!prev.budgets.some((budget) => budget.id === id)) {
+        return prev;
+      }
+      let changed = false;
+      const budgets = prev.budgets.map((budget) => {
+        if (budget.id === id) {
+          if (!budget.isPrimary) {
+            changed = true;
+            return { ...budget, isPrimary: true, updatedAt: timestamp };
+          }
+          return budget;
+        }
+        if (budget.isPrimary) {
+          changed = true;
+          return { ...budget, isPrimary: false, updatedAt: timestamp };
+        }
+        return budget;
+      });
+      if (!changed) {
+        return prev;
+      }
+      return { ...prev, budgets };
+    });
+    logInfo('Primary budget set', { id });
+  };
+
   const duplicateBudget = (id: string): Budget | null => {
     const source = state.budgets.find((budget) => budget.id === id);
     if (!source) {
@@ -1432,45 +1559,335 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       id: generateId('bdg'),
       name: duplicateName,
       archived: false,
+      isPrimary: false,
       collectionIds: [...source.collectionIds],
       createdAt: now.toISOString(),
       updatedAt: now.toISOString()
     };
-    updateState((prev) => ({ ...prev, budgets: [...prev.budgets, duplicate] }));
+    const sourceLines = state.budgetLines
+      .filter((line) => line.budgetId === id)
+      .map((line) => {
+        const newLineId = generateId('bdl');
+        const nowIso = now.toISOString();
+        const subLines = line.subLines.map((sub) => ({
+          ...sub,
+          id: generateId('bdl-sub'),
+          plannedAmounts: { ...sub.plannedAmounts },
+          createdAt: nowIso,
+          updatedAt: nowIso
+        }));
+        return {
+          ...line,
+          id: newLineId,
+          budgetId: duplicate.id,
+          plannedAmounts: { ...line.plannedAmounts },
+          subLines,
+          createdAt: nowIso,
+          updatedAt: nowIso
+        } satisfies BudgetLine;
+      });
+    updateState((prev) => ({
+      ...prev,
+      budgets: [...prev.budgets, duplicate],
+      budgetLines: [...prev.budgetLines, ...sourceLines]
+    }));
     logInfo('Budget duplicated', { id: duplicate.id, source: id });
     return duplicate;
   };
 
   const archiveBudget = (id: string) => {
-    updateState((prev) => ({
-      ...prev,
-      budgets: prev.budgets.map((budget) =>
-        budget.id === id
-          ? { ...budget, archived: true, updatedAt: new Date().toISOString() }
-          : budget
-      )
-    }));
+    const timestamp = new Date().toISOString();
+    updateState((prev) => {
+      let primaryArchived = false;
+      const budgets = prev.budgets.map((budget) => {
+        if (budget.id === id) {
+          primaryArchived = budget.isPrimary;
+          return { ...budget, archived: true, isPrimary: false, updatedAt: timestamp };
+        }
+        return budget;
+      });
+      if (primaryArchived) {
+        const next = budgets.find((budget) => !budget.archived);
+        if (next) {
+          const withPrimary = budgets.map((budget) =>
+            budget.id === next.id
+              ? { ...budget, isPrimary: true, updatedAt: timestamp }
+              : budget
+          );
+          return { ...prev, budgets: withPrimary };
+        }
+      }
+      return { ...prev, budgets };
+    });
     logInfo('Budget archived', { id });
   };
 
   const restoreBudget = (id: string) => {
-    updateState((prev) => ({
-      ...prev,
-      budgets: prev.budgets.map((budget) =>
+    const timestamp = new Date().toISOString();
+    updateState((prev) => {
+      const budgets = prev.budgets.map((budget) =>
         budget.id === id
-          ? { ...budget, archived: false, updatedAt: new Date().toISOString() }
+          ? { ...budget, archived: false, updatedAt: timestamp }
           : budget
-      )
-    }));
+      );
+      if (!budgets.some((budget) => budget.isPrimary)) {
+        const next = budgets.find((budget) => !budget.archived);
+        if (next) {
+          const withPrimary = budgets.map((budget) =>
+            budget.id === next.id
+              ? { ...budget, isPrimary: true, updatedAt: timestamp }
+              : budget
+          );
+          return { ...prev, budgets: withPrimary };
+        }
+      }
+      return { ...prev, budgets };
+    });
     logInfo('Budget restored', { id });
   };
 
   const deleteBudget = (id: string) => {
+    const timestamp = new Date().toISOString();
+    updateState((prev) => {
+      const removed = prev.budgets.find((budget) => budget.id === id);
+      if (!removed) {
+        return prev;
+      }
+      const remainingBudgets = prev.budgets.filter((budget) => budget.id !== id);
+      let budgets = remainingBudgets;
+      if (removed.isPrimary) {
+        const next = remainingBudgets.find((budget) => !budget.archived);
+        if (next) {
+          budgets = remainingBudgets.map((budget) =>
+            budget.id === next.id
+              ? { ...budget, isPrimary: true, updatedAt: timestamp }
+              : budget
+          );
+        }
+      }
+      return {
+        ...prev,
+        budgets,
+        budgetLines: prev.budgetLines.filter((line) => line.budgetId !== id)
+      };
+    });
+    logInfo('Budget deleted', { id });
+  };
+
+  const createBudgetLine = (budgetId: string, categoryId: string): BudgetLine | null => {
+    if (!state.budgets.some((budget) => budget.id === budgetId)) {
+      return null;
+    }
+    if (!state.categories.some((category) => category.id === categoryId)) {
+      return null;
+    }
+    if (
+      state.budgetLines.some(
+        (line) => line.budgetId === budgetId && line.categoryId === categoryId
+      )
+    ) {
+      return null;
+    }
+    const nowIso = new Date().toISOString();
+    const maxOrder = state.budgetLines
+      .filter((line) => line.budgetId === budgetId)
+      .reduce((max, line) => Math.max(max, line.order), -1);
+    const line: BudgetLine = {
+      id: generateId('bdl'),
+      budgetId,
+      categoryId,
+      mode: 'single',
+      plannedAmounts: {},
+      subLines: [],
+      order: maxOrder + 1,
+      createdAt: nowIso,
+      updatedAt: nowIso
+    };
     updateState((prev) => ({
       ...prev,
-      budgets: prev.budgets.filter((budget) => budget.id !== id)
+      budgetLines: [...prev.budgetLines, line]
     }));
-    logInfo('Budget deleted', { id });
+    logInfo('Budget line created', { budgetId, lineId: line.id });
+    return line;
+  };
+
+  const removeBudgetLine = (id: string) => {
+    updateState((prev) => ({
+      ...prev,
+      budgetLines: prev.budgetLines.filter((line) => line.id !== id)
+    }));
+    logInfo('Budget line removed', { id });
+  };
+
+  const setBudgetLineMode = (id: string, mode: BudgetLineMode) => {
+    if (mode !== 'single' && mode !== 'breakdown') return;
+    const timestamp = new Date().toISOString();
+    updateState((prev) => {
+      const index = prev.budgetLines.findIndex((line) => line.id === id);
+      if (index === -1) {
+        return prev;
+      }
+      const line = prev.budgetLines[index];
+      if (line.mode === mode) {
+        return prev;
+      }
+      const budgetLines = [...prev.budgetLines];
+      budgetLines[index] = { ...line, mode, updatedAt: timestamp };
+      return { ...prev, budgetLines };
+    });
+    logInfo('Budget line mode updated', { id, mode });
+  };
+
+  const setBudgetLinePlannedAmount = (
+    id: string,
+    periodKey: string,
+    amount: number
+  ) => {
+    const value = Number(amount);
+    const timestamp = new Date().toISOString();
+    updateState((prev) => {
+      const index = prev.budgetLines.findIndex((line) => line.id === id);
+      if (index === -1) {
+        return prev;
+      }
+      const line = prev.budgetLines[index];
+      const planned = { ...line.plannedAmounts };
+      if (!Number.isFinite(value) || Math.abs(value) < 1e-6) {
+        delete planned[periodKey];
+      } else {
+        planned[periodKey] = value;
+      }
+      const budgetLines = [...prev.budgetLines];
+      budgetLines[index] = { ...line, plannedAmounts: planned, updatedAt: timestamp };
+      return { ...prev, budgetLines };
+    });
+    logInfo('Budget line planned amount set', { id, periodKey, amount: value });
+  };
+
+  const reorderBudgetLines = (budgetId: string, orderedIds: string[]) => {
+    const timestamp = new Date().toISOString();
+    updateState((prev) => {
+      const orderMap = new Map<string, number>();
+      orderedIds.forEach((lineId, index) => {
+        orderMap.set(lineId, index);
+      });
+      let nextOrder = orderedIds.length;
+      let changed = false;
+      const budgetLines = prev.budgetLines.map((line) => {
+        if (line.budgetId !== budgetId) {
+          return line;
+        }
+        const newOrder = orderMap.has(line.id) ? orderMap.get(line.id)! : nextOrder++;
+        if (line.order === newOrder) {
+          return line;
+        }
+        changed = true;
+        return { ...line, order: newOrder, updatedAt: timestamp };
+      });
+      if (!changed) {
+        return prev;
+      }
+      return { ...prev, budgetLines };
+    });
+    logInfo('Budget lines reordered', { budgetId });
+  };
+
+  const createBudgetSubLine = (
+    lineId: string,
+    subCategoryId: string
+  ): BudgetLineSubLine | null => {
+    if (!state.subCategories.some((sub) => sub.id === subCategoryId)) {
+      return null;
+    }
+    const parent = state.budgetLines.find((line) => line.id === lineId);
+    if (!parent) {
+      return null;
+    }
+    if (parent.subLines.some((sub) => sub.subCategoryId === subCategoryId)) {
+      return null;
+    }
+    const timestamp = new Date().toISOString();
+    const subLine: BudgetLineSubLine = {
+      id: generateId('bdl-sub'),
+      subCategoryId,
+      plannedAmounts: {},
+      createdAt: timestamp,
+      updatedAt: timestamp
+    };
+    updateState((prev) => {
+      const index = prev.budgetLines.findIndex((line) => line.id === lineId);
+      if (index === -1) {
+        return prev;
+      }
+      const line = prev.budgetLines[index];
+      const budgetLines = [...prev.budgetLines];
+      budgetLines[index] = {
+        ...line,
+        subLines: [...line.subLines, subLine],
+        updatedAt: timestamp
+      };
+      return { ...prev, budgetLines };
+    });
+    logInfo('Budget sub-line created', { lineId, subLineId: subLine.id });
+    return subLine;
+  };
+
+  const removeBudgetSubLine = (lineId: string, subLineId: string) => {
+    updateState((prev) => {
+      const index = prev.budgetLines.findIndex((line) => line.id === lineId);
+      if (index === -1) {
+        return prev;
+      }
+      const line = prev.budgetLines[index];
+      if (!line.subLines.some((sub) => sub.id === subLineId)) {
+        return prev;
+      }
+      const timestamp = new Date().toISOString();
+      const subLines = line.subLines.filter((sub) => sub.id !== subLineId);
+      const budgetLines = [...prev.budgetLines];
+      budgetLines[index] = { ...line, subLines, updatedAt: timestamp };
+      return { ...prev, budgetLines };
+    });
+    logInfo('Budget sub-line removed', { lineId, subLineId });
+  };
+
+  const setBudgetSubLinePlannedAmount = (
+    subLineId: string,
+    periodKey: string,
+    amount: number
+  ) => {
+    const value = Number(amount);
+    const timestamp = new Date().toISOString();
+    updateState((prev) => {
+      let changed = false;
+      const budgetLines = prev.budgetLines.map((line) => {
+        const subIndex = line.subLines.findIndex((sub) => sub.id === subLineId);
+        if (subIndex === -1) {
+          return line;
+        }
+        const sub = line.subLines[subIndex];
+        const planned = { ...sub.plannedAmounts };
+        if (!Number.isFinite(value) || Math.abs(value) < 1e-6) {
+          delete planned[periodKey];
+        } else {
+          planned[periodKey] = value;
+        }
+        const updatedSub: BudgetLineSubLine = {
+          ...sub,
+          plannedAmounts: planned,
+          updatedAt: timestamp
+        };
+        const subLines = [...line.subLines];
+        subLines[subIndex] = updatedSub;
+        changed = true;
+        return { ...line, subLines, updatedAt: timestamp };
+      });
+      if (!changed) {
+        return prev;
+      }
+      return { ...prev, budgetLines };
+    });
+    logInfo('Budget sub-line planned amount set', { subLineId, periodKey, amount: value });
   };
 
   const createAccountCollection = (
@@ -2499,6 +2916,8 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       payees: [...prev.payees, ...demo.payees],
       tags: [...prev.tags, ...demo.tags],
       transactions: [...demo.transactions, ...prev.transactions],
+      budgets: [...prev.budgets, ...demo.budgets],
+      budgetLines: [...prev.budgetLines, ...demo.budgetLines],
       settings: {
         ...prev.settings,
         exchangeRates: demo.settings.exchangeRates.reduce((acc, rate) => {
@@ -2561,10 +2980,19 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       setCollectionsForAccount,
       createBudget,
       updateBudget,
+      setPrimaryBudget,
       duplicateBudget,
       archiveBudget,
       restoreBudget,
       deleteBudget,
+      createBudgetLine,
+      removeBudgetLine,
+      setBudgetLineMode,
+      setBudgetLinePlannedAmount,
+      reorderBudgetLines,
+      createBudgetSubLine,
+      removeBudgetSubLine,
+      setBudgetSubLinePlannedAmount,
       createAccountCollection,
       updateAccountCollection,
       deleteAccountCollection,

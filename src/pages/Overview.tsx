@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import PageHeader from '../components/PageHeader';
 import Tooltip from '../components/Tooltip';
 import { useData } from '../data/DataContext';
@@ -10,6 +11,8 @@ import {
   FlowType,
   getFlowTypeForMaster
 } from '../utils/categories';
+import { calculateBudgetPeriod } from '../utils/budgetCalculations';
+import '../styles/overview.css';
 
 const buildDefaultStartDate = () => {
   const date = new Date();
@@ -28,6 +31,7 @@ type RateMeta = {
 
 const Overview = () => {
   const { state } = useData();
+  const navigate = useNavigate();
   const accounts = useMemo(
     () => state.accounts.filter((account) => !account.archived),
     [state.accounts]
@@ -167,6 +171,53 @@ const Overview = () => {
     () => new Set(filteredAccounts.map((account) => account.id)),
     [filteredAccounts]
   );
+
+  const primaryBudget = useMemo(() => {
+    const active = state.budgets.filter((budget) => !budget.archived);
+    const explicit = active.find((budget) => budget.isPrimary);
+    return explicit ?? active[0] ?? null;
+  }, [state.budgets]);
+
+  const primaryBudgetLines = useMemo(() => {
+    if (!primaryBudget) return [];
+    return state.budgetLines.filter((line) => line.budgetId === primaryBudget.id);
+  }, [primaryBudget, state.budgetLines]);
+
+  const primaryBudgetComputation = useMemo(() => {
+    if (!primaryBudget) return null;
+    return calculateBudgetPeriod({
+      budget: primaryBudget,
+      lines: primaryBudgetLines,
+      accounts: state.accounts,
+      transactions: state.transactions,
+      categories: state.categories,
+      subCategories: state.subCategories,
+      masterCategories: state.masterCategories,
+      settings: state.settings
+    });
+  }, [
+    primaryBudget,
+    primaryBudgetLines,
+    state.accounts,
+    state.transactions,
+    state.categories,
+    state.subCategories,
+    state.masterCategories,
+    state.settings
+  ]);
+
+  const budgetAttentionLines = useMemo(() => {
+    if (!primaryBudgetComputation) return [];
+    return primaryBudgetComputation.lines
+      .filter((line) => line.status === 'over' || line.status === 'near')
+      .sort((a, b) => Math.abs(b.difference) - Math.abs(a.difference))
+      .slice(0, 3);
+  }, [primaryBudgetComputation]);
+
+  const snapshotTotals = primaryBudgetComputation?.summary.totals;
+  const snapshotPeriodRange = primaryBudgetComputation
+    ? `${formatDate(primaryBudgetComputation.period.start.toISOString())} → ${formatDate(primaryBudgetComputation.period.end.toISOString())}`
+    : '';
 
   const masterById = useMemo(
     () => new Map(state.masterCategories.map((master) => [master.id, master])),
@@ -371,6 +422,12 @@ const Overview = () => {
   const formatSignedCurrency = (value: number) =>
     `${value < 0 ? '-' : ''}${formatCurrency(Math.abs(value), baseCurrency)}`;
 
+  const formatBudgetDifference = (value: number) => {
+    const formatted = formatCurrency(Math.abs(value), baseCurrency);
+    if (value === 0) return formatted;
+    return `${value > 0 ? '+' : '-'}${formatted}`;
+  };
+
   const renderRateDetails = (account: Account) => {
     const rateInfo = getRateInfo(account.currency);
     if (rateInfo.source === 'base') {
@@ -394,6 +451,82 @@ const Overview = () => {
         title="Overview"
         description="Bank-style filters, category roll-ups, and currency-aware balances for a consolidated health check."
       />
+      {primaryBudget && primaryBudgetComputation ? (
+        <button
+          type="button"
+          className="budget-snapshot-card"
+          onClick={() => navigate('/budgets', { state: { budgetId: primaryBudget.id } })}
+        >
+          <div className="budget-snapshot-card__header">
+            <div>
+              <span className="budget-snapshot-card__eyebrow">Primary budget</span>
+              <h3>{primaryBudget.name}</h3>
+            </div>
+            <div className="budget-snapshot-card__period">
+              <span>{primaryBudgetComputation.period.label}</span>
+              <span className="budget-snapshot-card__range">{snapshotPeriodRange}</span>
+            </div>
+          </div>
+          <div className="budget-snapshot-card__totals">
+            <div>
+              <span className="budget-snapshot-card__label">Income</span>
+              <div className="budget-snapshot-card__metric-row">
+                <span>Planned</span>
+                <strong>{formatCurrency(snapshotTotals?.incomePlanned ?? 0, baseCurrency)}</strong>
+              </div>
+              <div className="budget-snapshot-card__metric-row">
+                <span>Actual</span>
+                <strong>{formatCurrency(snapshotTotals?.incomeActual ?? 0, baseCurrency)}</strong>
+              </div>
+              <div className="budget-snapshot-card__metric-row">
+                <span>Difference</span>
+                <strong>
+                  {formatBudgetDifference(
+                    (snapshotTotals?.incomePlanned ?? 0) - (snapshotTotals?.incomeActual ?? 0)
+                  )}
+                </strong>
+              </div>
+            </div>
+            <div>
+              <span className="budget-snapshot-card__label">Expenses</span>
+              <div className="budget-snapshot-card__metric-row">
+                <span>Planned</span>
+                <strong>{formatCurrency(snapshotTotals?.expensePlanned ?? 0, baseCurrency)}</strong>
+              </div>
+              <div className="budget-snapshot-card__metric-row">
+                <span>Actual</span>
+                <strong>{formatCurrency(snapshotTotals?.expenseActual ?? 0, baseCurrency)}</strong>
+              </div>
+              <div className="budget-snapshot-card__metric-row">
+                <span>Difference</span>
+                <strong>
+                  {formatBudgetDifference(
+                    (snapshotTotals?.expensePlanned ?? 0) - (snapshotTotals?.expenseActual ?? 0)
+                  )}
+                </strong>
+              </div>
+            </div>
+          </div>
+          <div className="budget-snapshot-card__attention">
+            <span className="budget-snapshot-card__label">Attention</span>
+            {primaryBudgetLines.length === 0 ? (
+              <p className="muted-text">Add budget lines to begin tracking this budget.</p>
+            ) : budgetAttentionLines.length === 0 ? (
+              <p className="muted-text">All tracked categories are within plan.</p>
+            ) : (
+              budgetAttentionLines.map((line) => (
+                <div
+                  key={line.line.id}
+                  className={`budget-snapshot-card__attention-row budget-status--${line.status}`}
+                >
+                  <span>{line.category?.name ?? 'Category'}</span>
+                  <span>{formatBudgetDifference(line.difference)}</span>
+                </div>
+              ))
+            )}
+          </div>
+        </button>
+      ) : null}
       <div className="form-card">
         <h3>Flow filters</h3>
         <div className="flow-filter-bar" role="toolbar" aria-label="Flow filter options">

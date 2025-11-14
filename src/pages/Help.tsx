@@ -5,8 +5,31 @@ const Help = () => (
   <div className="content-stack">
     <PageHeader
       title="Help"
-      description="Guides for managing accounts, providers, collections, categories, and payees."
+      description="Guides for managing accounts, budgets, providers, collections, categories, and payees."
     />
+    <div className="content-card">
+      <h3>Budgets & period navigation</h3>
+      <p className="muted-text">
+        Budgets are made up of category lines and optional sub-lines. Each line stores a planned amount in the
+        base currency for every period, and progress bars compare the effective plan (including any rollover)
+        with actual activity from included accounts. Use the Previous / Current / Next controls to step through
+        months, weeks, years, or tax years without rewriting history—the rollover summary shows exactly how
+        underspending or overspending carries forward. Click any budget line to open Transactions with the
+        category, accounts, flow type, and date filters applied automatically.
+      </p>
+      <div className="help-diagram">
+        <strong>Editor quick reference</strong>
+        <pre>{[
+          'Line ➜ select category → set plan in base currency',
+          'Breakdown ➜ toggle on → add sub-category lines',
+          'Rollover ➜ shows carry-in for the active period',
+          'Progress bar ➜ green (under), amber (nearing), red (over)',
+          'Period controls ➜ jump to previous/current/next cycle',
+          'Drill-down ➜ click line to inspect contributing transactions'
+        ].join('\n')}</pre>
+        <Tooltip label="Tooltips in the editor describe rollover math, planned vs actual logic, and how drill-down filters are applied." />
+      </div>
+    </div>
     <div className="content-card">
       <h3>Overview filters</h3>
       <p className="muted-text">

@@ -9,6 +9,7 @@ import {
   useState
 } from 'react';
 import { createPortal } from 'react-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import PageHeader from '../components/PageHeader';
 import Tooltip from '../components/Tooltip';
 import {
@@ -30,6 +31,7 @@ import {
 } from '../data/models';
 import { buildCategoryTree } from '../utils/categories';
 import { formatCurrency, formatDate } from '../utils/format';
+import '../styles/transactions.css';
 
 const COLUMN_STORAGE_KEY = 'transactions.workspace.columns.v1';
 const ROW_HEIGHT = 52;
@@ -1071,6 +1073,22 @@ const defaultFilters: FilterState = {
   currency: 'all'
 };
 
+type BudgetDrilldownContext = {
+  budgetId: string;
+  budgetName: string;
+  lineId: string;
+  lineName: string;
+  subLineId: string | null;
+  subLineName: string | null;
+  period: { start: string; end: string; label: string };
+  flow: 'in' | 'out' | 'transfer';
+  includeMode: 'all' | 'collections';
+  accountIds: string[];
+  collectionIds: string[];
+  categoryId: string;
+  subCategoryId: string | null;
+};
+
 type BulkActionState =
   | { type: 'category'; value: string }
   | { type: 'payee'; value: string }
@@ -1098,6 +1116,68 @@ const Transactions = () => {
   );
   const tags = useMemo(() => state.tags.filter((tag) => !tag.archived), [state.tags]);
   const collections = useMemo(() => state.accountCollections, [state.accountCollections]);
+  const accountNameLookup = useMemo(
+    () => new Map(accounts.map((account) => [account.id, account.name])),
+    [accounts]
+  );
+  const collectionNameLookup = useMemo(
+    () => new Map(collections.map((collection) => [collection.id, collection.name])),
+    [collections]
+  );
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [filters, setFilters] = useState<FilterState>(defaultFilters);
+  const [budgetContext, setBudgetContext] = useState<BudgetDrilldownContext | null>(null);
+
+  const summariseNames = (
+    ids: string[],
+    lookup: Map<string, string>,
+    fallback: string
+  ) => {
+    if (ids.length === 0) {
+      return fallback;
+    }
+    const names = ids
+      .map((id) => lookup.get(id) ?? 'Unknown')
+      .filter((name) => Boolean(name));
+    if (names.length === 0) {
+      return fallback;
+    }
+    if (names.length <= 3) {
+      return names.join(', ');
+    }
+    return `${names.slice(0, 2).join(', ')} +${names.length - 2} more`;
+  };
+
+  const handleClearBudgetContext = () => {
+    setBudgetContext(null);
+    setFilters(defaultFilters);
+  };
+
+  useEffect(() => {
+    const payload = (location.state as { budgetDrilldown?: BudgetDrilldownContext } | null)?.budgetDrilldown;
+    if (payload) {
+      setBudgetContext(payload);
+      setFilters({
+        ...defaultFilters,
+        dateFrom: payload.period.start,
+        dateTo: payload.period.end,
+        accountIds: payload.accountIds,
+        providerNames: [],
+        collectionIds: payload.includeMode === 'collections' ? payload.collectionIds : [],
+        flowTypes: [payload.flow as RuleFlowType],
+        categoryId: payload.categoryId,
+        subCategoryId: payload.subCategoryId ?? '',
+        payeeQuery: '',
+        tagIds: [],
+        minAmount: '',
+        maxAmount: '',
+        searchText: '',
+        currency: 'all'
+      });
+      navigate('.', { replace: true, state: null });
+    }
+  }, [location.state, navigate]);
 
   const masterLookup = useMemo(() => {
     const map = new Map<string, string>();
@@ -1129,7 +1209,6 @@ const Transactions = () => {
     return lookup;
   }, [state.categories, state.masterCategories]);
 
-  const [filters, setFilters] = useState<FilterState>(defaultFilters);
   const [showBaseAmounts, setShowBaseAmounts] = useState(false);
   const [selectedTransactionIds, setSelectedTransactionIds] = useState<string[]>([]);
   const [columnState, setColumnState] = useColumnState();
@@ -1356,6 +1435,11 @@ const Transactions = () => {
   };
 
   const clearFilters = () => setFilters(defaultFilters);
+
+  const clearBudgetContext = () => {
+    setBudgetContext(null);
+    setFilters(defaultFilters);
+  };
 
   const inspectorView = useMemo(
     () => transactions.find((view) => view.transaction.id === inspectorId) ?? null,
@@ -1727,12 +1811,87 @@ const Transactions = () => {
     });
     return Array.from(set).sort();
   }, [state.transactions, state.settings.baseCurrency]);
+
+  const budgetFlowLabel = budgetContext
+    ? FLOW_LABELS[budgetContext.flow as RuleFlowType]
+    : '';
+  const filterFlowLabel = filters.flowTypes.length
+    ? filters.flowTypes.map((type) => FLOW_LABELS[type]).join(', ')
+    : 'All flows';
+  const categoryFilterName = filters.categoryId
+    ? categoryById.get(filters.categoryId)?.name ?? 'Unknown category'
+    : 'All categories';
+  const subCategoryFilterName = filters.subCategoryId
+    ? subCategoryById.get(filters.subCategoryId)?.name ?? 'Unknown sub-category'
+    : 'All sub-categories';
+  const categorySummary = filters.categoryId
+    ? filters.subCategoryId
+      ? `${categoryFilterName} → ${subCategoryFilterName}`
+      : `${categoryFilterName} → All sub-categories`
+    : 'All categories';
+  const budgetLineSummary = budgetContext
+    ? budgetContext.subLineName
+      ? `${budgetContext.lineName} → ${budgetContext.subLineName}`
+      : `${budgetContext.lineName} (all sub-categories)`
+    : '';
+  const budgetPeriodRange = budgetContext
+    ? `${formatDate(budgetContext.period.start)} → ${formatDate(budgetContext.period.end)}`
+    : '';
+  const appliedDateRange = filters.dateFrom || filters.dateTo
+    ? `${filters.dateFrom ? formatDate(filters.dateFrom) : 'Any'} → ${filters.dateTo ? formatDate(filters.dateTo) : 'Any'}`
+    : 'All dates';
+  const accountSummary = summariseNames(filters.accountIds, accountNameLookup, 'All eligible accounts');
+  const collectionSummaryText = filters.collectionIds.length
+    ? summariseNames(filters.collectionIds, collectionNameLookup, 'Selected collections')
+    : '';
+
   return (
     <div className="content-stack">
       <PageHeader
         title="Transactions"
         description="Review, filter, and edit transactions with full context."
       />
+
+      {budgetContext ? (
+        <div className="budget-context-card">
+          <div className="budget-context-card__header">
+            <div>
+              <h4>{budgetContext.budgetName}</h4>
+              <p className="muted-text">
+                {budgetContext.period.label} · {budgetPeriodRange}
+              </p>
+              <p className="muted-text">{budgetLineSummary}</p>
+            </div>
+            <button type="button" className="chip-button" onClick={handleClearBudgetContext}>
+              Clear drill-down
+            </button>
+          </div>
+          <div className="budget-context-card__details">
+            <div>
+              <span className="budget-context-card__label">Flow</span>
+              <strong>{budgetFlowLabel}</strong>
+              <p className="muted-text">Filter: {filterFlowLabel}</p>
+            </div>
+            <div>
+              <span className="budget-context-card__label">Category</span>
+              <strong>{categorySummary}</strong>
+              <p className="muted-text">Line: {budgetLineSummary}</p>
+            </div>
+            <div>
+              <span className="budget-context-card__label">Date range</span>
+              <strong>{appliedDateRange}</strong>
+              <p className="muted-text">Budget period: {budgetPeriodRange}</p>
+            </div>
+            <div>
+              <span className="budget-context-card__label">Accounts</span>
+              <strong>{accountSummary}</strong>
+              {collectionSummaryText ? (
+                <p className="muted-text">Collections: {collectionSummaryText}</p>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div className="content-card">
         <div className="filter-bar">

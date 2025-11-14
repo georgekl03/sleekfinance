@@ -1,5 +1,22 @@
 # SleekFinance
 
+## Budgeting upgrades
+
+- **Budget lines & breakdowns** – Each budget now supports multiple category lines and optional sub-lines.
+  Planned amounts are stored per period in the base currency, so past values remain intact when you review
+  older months, weeks, or tax years.
+- **Planned vs actual tracking** – Actual amounts pull directly from matching transactions, respect flow type
+  rules, collections, and currency conversion, and surface clear progress indicators (under, nearing, over).
+- **Rollover transparency** – When rollover is enabled, the editor shows how unspent or overspent amounts
+  adjust the effective plan without mutating historical data. Differences are calculated against the rolled
+  balance so you can see the impact immediately.
+- **Period navigation** – Budgets handle monthly, weekly, annual, and UK fiscal cadences with Previous /
+  Current / Next controls. The active range is called out in the editor and on the new snapshot card.
+- **Transactions drill-down** – Clicking a budget line jumps to the Transactions workspace with period,
+  account/collection, category, and flow filters applied, plus a banner explaining the context.
+- **Overview snapshot** – The Overview page includes a “Budget snapshot” card for the primary budget,
+  summarising income vs expense totals and highlighting categories that are over or nearing their limits.
+
 SleekFinance is a dark-themed personal finance and budgeting workspace. Stage 3 expands the app with a
 multi-step imports wizard, mapping profiles, FX handling, duplicate detection, manual exchange rate
 management, and configurable import defaults layered on top of the Stage 2 data models and logging.
@@ -33,6 +50,12 @@ If you prefer a POSIX shell wrapper you can still run:
 
 Both commands default to the Vite dev server at `http://localhost:5173`. Use any email/password
 combination to sign in.
+
+## Environment notes
+
+- No new configuration keys were introduced for the budgeting upgrades. The existing Settings fields for
+  base currency and manual exchange rates continue to drive all conversions, and planned amounts always
+  remain stored in the configured base currency.
 
 ## Overview & Net Worth
 

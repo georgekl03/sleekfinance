@@ -67,7 +67,31 @@ export type Budget = {
   startDayOfWeek?: number;
   includeMode: BudgetInclusionMode;
   collectionIds: string[];
+  rolloverEnabled: boolean;
+  isPrimary: boolean;
   archived: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type BudgetLineMode = 'single' | 'breakdown';
+
+export type BudgetLineSubLine = {
+  id: string;
+  subCategoryId: string;
+  plannedAmounts: Record<string, number>;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type BudgetLine = {
+  id: string;
+  budgetId: string;
+  categoryId: string;
+  mode: BudgetLineMode;
+  plannedAmounts: Record<string, number>;
+  subLines: BudgetLineSubLine[];
+  order: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -207,6 +231,7 @@ export type DataState = {
   providerDirectory: string[];
   accountCollections: AccountCollection[];
   budgets: Budget[];
+  budgetLines: BudgetLine[];
   payees: Payee[];
   tags: Tag[];
   transactions: Transaction[];

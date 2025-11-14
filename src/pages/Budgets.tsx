@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import PageHeader from '../components/PageHeader';
 import Tooltip from '../components/Tooltip';
 import { useData } from '../data/DataContext';
@@ -9,6 +10,13 @@ import {
   formatBudgetPeriodRange,
   getBudgetPeriodInfo
 } from '../utils/budgetPeriods';
+import { formatCurrency, formatPercentage } from '../utils/format';
+import {
+  calculateBudgetPeriod,
+  BudgetLineMetric,
+  BudgetLineStatus,
+  BudgetSubLineMetric
+} from '../utils/budgetCalculations';
 import '../styles/budgets.css';
 
 const MONTH_OPTIONS = Array.from({ length: 12 }, (_, index) => ({
@@ -35,6 +43,19 @@ const PERIOD_TYPE_OPTIONS = [
   { value: 'uk-fiscal', label: BUDGET_PERIOD_TYPE_LABELS['uk-fiscal'] }
 ] as const;
 
+const STATUS_LABELS: Record<BudgetLineStatus, string> = {
+  none: 'No activity',
+  under: 'Under budget',
+  near: 'Nearing limit',
+  over: 'Over budget'
+};
+
+const FLOW_LABELS: Record<BudgetLineMetric['flow'], string> = {
+  in: 'Income',
+  out: 'Expense',
+  transfer: 'Transfer'
+};
+
 type BudgetFormState = {
   name: string;
   periodType: Budget['periodType'];
@@ -43,6 +64,7 @@ type BudgetFormState = {
   startDayOfWeek?: number;
   includeMode: Budget['includeMode'];
   collectionIds: string[];
+  rolloverEnabled: boolean;
 };
 
 type BudgetListItemProps = {
@@ -54,6 +76,7 @@ type BudgetListItemProps = {
   onArchive: () => void;
   onRestore: () => void;
   onDelete: () => void;
+  onSetPrimary: () => void;
 };
 
 const BudgetListItem = ({
@@ -64,7 +87,8 @@ const BudgetListItem = ({
   onDuplicate,
   onArchive,
   onRestore,
-  onDelete
+  onDelete,
+  onSetPrimary
 }: BudgetListItemProps) => {
   const period = useMemo(() => getBudgetPeriodInfo(budget), [budget]);
   const inclusionLabel =
@@ -83,6 +107,7 @@ const BudgetListItem = ({
       </button>
       <div className="budget-card__badges">
         <span className="budget-badge">{inclusionLabel}</span>
+        {budget.isPrimary ? <span className="budget-badge primary">Primary</span> : null}
         {budget.archived ? <span className="budget-badge archived">Archived</span> : null}
       </div>
       <div className="budget-card__actions">
@@ -92,6 +117,11 @@ const BudgetListItem = ({
         <button type="button" className="chip-button" onClick={onDuplicate}>
           Duplicate
         </button>
+        {!budget.isPrimary && !budget.archived ? (
+          <button type="button" className="chip-button" onClick={onSetPrimary}>
+            Set primary
+          </button>
+        ) : null}
         {budget.archived ? (
           <button type="button" className="chip-button" onClick={onRestore}>
             Restore
@@ -116,7 +146,20 @@ type BudgetEditorProps = {
 };
 
 const BudgetEditor = ({ budget, collections, onClose }: BudgetEditorProps) => {
-  const { updateBudget } = useData();
+  const {
+    state,
+    updateBudget,
+    createBudgetLine,
+    removeBudgetLine,
+    setBudgetLineMode,
+    setBudgetLinePlannedAmount,
+    createBudgetSubLine,
+    removeBudgetSubLine,
+    setBudgetSubLinePlannedAmount
+  } = useData();
+  const navigate = useNavigate();
+  const baseCurrency = state.settings.baseCurrency;
+  const referenceDate = useMemo(() => new Date(), []);
   const [form, setForm] = useState<BudgetFormState>(() => ({
     name: budget.name,
     periodType: budget.periodType,
@@ -124,7 +167,8 @@ const BudgetEditor = ({ budget, collections, onClose }: BudgetEditorProps) => {
     startYear: budget.startYear,
     startDayOfWeek: budget.startDayOfWeek ?? 1,
     includeMode: budget.includeMode,
-    collectionIds: budget.collectionIds
+    collectionIds: budget.collectionIds,
+    rolloverEnabled: budget.rolloverEnabled
   }));
   const [periodOffset, setPeriodOffset] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -138,32 +182,149 @@ const BudgetEditor = ({ budget, collections, onClose }: BudgetEditorProps) => {
       startYear: normalised.startYear,
       startDayOfWeek: normalised.startDayOfWeek ?? 1,
       includeMode: budget.includeMode,
-      collectionIds: budget.collectionIds
+      collectionIds: budget.collectionIds,
+      rolloverEnabled: budget.rolloverEnabled
     });
     setPeriodOffset(0);
     setError(null);
   }, [budget]);
 
-  const previewBudget = useMemo(
+  const previewBudget = useMemo(() => {
+    const periodApplied = applyBudgetPeriodDraft(budget, {
+      periodType: form.periodType,
+      startMonth: form.periodType === 'monthly' ? form.startMonth : undefined,
+      startYear:
+        form.periodType === 'monthly' ||
+        form.periodType === 'annual' ||
+        form.periodType === 'uk-fiscal'
+          ? form.startYear
+          : undefined,
+      startDayOfWeek: form.periodType === 'weekly' ? form.startDayOfWeek : undefined
+    });
+    return {
+      ...periodApplied,
+      includeMode: form.includeMode,
+      collectionIds:
+        form.includeMode === 'collections'
+          ? Array.from(new Set(form.collectionIds))
+          : [],
+      rolloverEnabled: form.rolloverEnabled
+    };
+  }, [budget, form]);
+
+  const lines = useMemo(
     () =>
-      applyBudgetPeriodDraft(budget, {
-        periodType: form.periodType,
-        startMonth: form.periodType === 'monthly' ? form.startMonth : undefined,
-        startYear:
-          form.periodType === 'monthly' ||
-          form.periodType === 'annual' ||
-          form.periodType === 'uk-fiscal'
-            ? form.startYear
-            : undefined,
-        startDayOfWeek: form.periodType === 'weekly' ? form.startDayOfWeek : undefined
-      }),
-    [budget, form]
+      state.budgetLines
+        .filter((line) => line.budgetId === budget.id)
+        .sort((a, b) => (a.order - b.order) || a.createdAt.localeCompare(b.createdAt)),
+    [budget.id, state.budgetLines]
   );
 
-  const currentPeriod = useMemo(
-    () => getBudgetPeriodInfo(previewBudget, periodOffset),
-    [previewBudget, periodOffset]
+  const computation = useMemo(
+    () =>
+      calculateBudgetPeriod({
+        budget: previewBudget,
+        lines,
+        accounts: state.accounts,
+        transactions: state.transactions,
+        categories: state.categories,
+        subCategories: state.subCategories,
+        masterCategories: state.masterCategories,
+        settings: state.settings,
+        referenceDate,
+        periodOffset
+      }),
+    [
+      previewBudget,
+      lines,
+      state.accounts,
+      state.transactions,
+      state.categories,
+      state.subCategories,
+      state.masterCategories,
+      state.settings,
+      referenceDate,
+      periodOffset
+    ]
   );
+
+  const periodInfo = computation.period;
+  const periodRange = formatBudgetPeriodRange(periodInfo);
+  const periodKey = computation.periodKey;
+
+  const includedAccounts = useMemo(
+    () =>
+      state.accounts.filter((account) => {
+        if (account.archived) return false;
+        if (!account.includeInTotals) return false;
+        if (form.includeMode === 'collections') {
+          return form.collectionIds.some((collectionId) =>
+            account.collectionIds.includes(collectionId)
+          );
+        }
+        return true;
+      }),
+    [state.accounts, form.includeMode, form.collectionIds]
+  );
+
+  const availableCategories = useMemo(
+    () =>
+      state.categories
+        .filter(
+          (category) =>
+            !category.archived &&
+            !category.mergedIntoId &&
+            category.masterCategoryId &&
+            !lines.some((line) => line.categoryId === category.id)
+        )
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [lines, state.categories]
+  );
+
+  const [newLineCategory, setNewLineCategory] = useState<string>(
+    () => availableCategories[0]?.id ?? ''
+  );
+
+  useEffect(() => {
+    if (!availableCategories.some((category) => category.id === newLineCategory)) {
+      setNewLineCategory(availableCategories[0]?.id ?? '');
+    }
+  }, [availableCategories, newLineCategory]);
+
+  const getAvailableSubCategories = useMemo(
+    () =>
+      (line: BudgetLineMetric['line']) => {
+        const used = new Set(line.subLines.map((sub) => sub.subCategoryId));
+        return state.subCategories
+          .filter(
+            (sub) =>
+              sub.categoryId === line.categoryId &&
+              !sub.archived &&
+              !sub.mergedIntoId &&
+              !used.has(sub.id)
+          )
+          .sort((a, b) => a.name.localeCompare(b.name));
+      },
+    [state.subCategories]
+  );
+
+  const [subLineSelections, setSubLineSelections] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    setSubLineSelections((current) => {
+      const next: Record<string, string> = {};
+      lines.forEach((line) => {
+        const options = getAvailableSubCategories(line);
+        const currentValue = current[line.id];
+        if (currentValue && options.some((option) => option.id === currentValue)) {
+          next[line.id] = currentValue;
+        } else {
+          next[line.id] = options[0]?.id ?? '';
+        }
+      });
+      return next;
+    });
+  }, [getAvailableSubCategories, lines]);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -180,7 +341,8 @@ const BudgetEditor = ({ budget, collections, onClose }: BudgetEditorProps) => {
       startDayOfWeek: form.periodType === 'weekly' ? form.startDayOfWeek : undefined,
       includeMode: form.includeMode,
       collectionIds:
-        form.includeMode === 'collections' ? Array.from(new Set(form.collectionIds)) : []
+        form.includeMode === 'collections' ? Array.from(new Set(form.collectionIds)) : [],
+      rolloverEnabled: form.rolloverEnabled
     };
     const result = updateBudget(budget.id, payload);
     if (result) {
@@ -205,12 +367,87 @@ const BudgetEditor = ({ budget, collections, onClose }: BudgetEditorProps) => {
     });
   };
 
+  const handleAddLine = () => {
+    if (!newLineCategory) return;
+    const line = createBudgetLine(budget.id, newLineCategory);
+    if (!line) {
+      window.alert('Category already added to this budget.');
+      return;
+    }
+    setNewLineCategory('');
+  };
+
+  const handleRemoveLine = (line: BudgetLineMetric) => {
+    const confirmed = window.confirm(`Remove ${line.category?.name ?? 'category'} from this budget?`);
+    if (confirmed) {
+      removeBudgetLine(line.line.id);
+    }
+  };
+
+  const handleModeToggle = (line: BudgetLineMetric, enabled: boolean) => {
+    setBudgetLineMode(line.line.id, enabled ? 'breakdown' : 'single');
+  };
+
+  const handlePlanChange = (line: BudgetLineMetric, value: string) => {
+    const numeric = Number.parseFloat(value);
+    const amount = Number.isFinite(numeric) ? Math.max(numeric, 0) : 0;
+    setBudgetLinePlannedAmount(line.line.id, periodKey, amount);
+  };
+
+  const handleAddSubLine = (line: BudgetLineMetric) => {
+    const selection = subLineSelections[line.line.id];
+    if (!selection) return;
+    createBudgetSubLine(line.line.id, selection);
+    setSubLineSelections((current) => ({ ...current, [line.line.id]: '' }));
+  };
+
+  const handleSubLinePlanChange = (subLine: BudgetSubLineMetric, value: string) => {
+    const numeric = Number.parseFloat(value);
+    const amount = Number.isFinite(numeric) ? Math.max(numeric, 0) : 0;
+    setBudgetSubLinePlannedAmount(subLine.subLine.id, periodKey, amount);
+  };
+
+  const handleDrilldown = (line: BudgetLineMetric, subLine?: BudgetSubLineMetric) => {
+    navigate('/transactions', {
+      state: {
+        budgetDrilldown: {
+          budgetId: budget.id,
+          budgetName: budget.name,
+          lineId: line.line.id,
+          lineName: line.category?.name ?? 'Category',
+          subLineId: subLine ? subLine.subLine.id : null,
+          subLineName: subLine?.subCategory?.name ?? null,
+          period: {
+            start: periodInfo.start.toISOString().slice(0, 10),
+            end: periodInfo.end.toISOString().slice(0, 10),
+            label: periodInfo.label
+          },
+          flow: line.flow,
+          includeMode: form.includeMode,
+          accountIds: includedAccounts.map((account) => account.id),
+          collectionIds: form.collectionIds,
+          categoryId: line.line.categoryId,
+          subCategoryId: subLine ? subLine.subLine.subCategoryId : null
+        }
+      }
+    });
+  };
+
+  const formatDifference = (value: number) => {
+    const formatted = formatCurrency(Math.abs(value), baseCurrency);
+    if (value === 0) return formatted;
+    return `${value > 0 ? '+' : '-'}${formatted}`;
+  };
+
+  const summary = computation.summary;
+  const lineMetrics = computation.lines;
+
   return (
     <div className="budget-editor">
       <header className="budget-editor__header">
         <h3>Edit budget</h3>
         <p className="muted-text">
-          Update the period cadence, start point, and which accounts feed this budget.
+          Update the cadence, inclusion scope, and planned amounts for each category.
         </p>
       </header>
       <form className="form-grid" onSubmit={handleSubmit}>
@@ -392,12 +629,27 @@ const BudgetEditor = ({ budget, collections, onClose }: BudgetEditorProps) => {
             )}
           </div>
         ) : null}
+        <div className="field checkbox-field">
+          <label>
+            <input
+              type="checkbox"
+              checked={form.rolloverEnabled}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, rolloverEnabled: event.target.checked }))
+              }
+            />
+            Enable rollover between periods
+          </label>
+          <p className="muted-text">
+            When enabled, unspent or overspent amounts carry into the next period automatically.
+          </p>
+        </div>
         <div className="field">
           <span>Active period preview</span>
           <div className="period-preview">
             <div>
-              <strong>{currentPeriod.label}</strong>
-              <p className="muted-text">{formatBudgetPeriodRange(currentPeriod)}</p>
+              <strong>{periodInfo.label}</strong>
+              <p className="muted-text">{periodRange}</p>
             </div>
             <div className="period-controls">
               <button
@@ -429,6 +681,311 @@ const BudgetEditor = ({ budget, collections, onClose }: BudgetEditorProps) => {
           </button>
         </div>
       </form>
+
+      <section className="budget-summary-card">
+        <header>
+          <h4>Summary for {periodInfo.label}</h4>
+          <p className="muted-text">
+            Planned amounts are stored in {baseCurrency}. Actuals convert from transaction currencies.
+          </p>
+        </header>
+        <div className="budget-summary__totals">
+          <div>
+            <strong>Income</strong>
+            <div className="budget-summary__figure">
+              <span>Planned</span>
+              <span>{formatCurrency(summary.totals.incomePlanned, baseCurrency)}</span>
+            </div>
+            <div className="budget-summary__figure">
+              <span>Actual</span>
+              <span>{formatCurrency(summary.totals.incomeActual, baseCurrency)}</span>
+            </div>
+            <div className="budget-summary__figure">
+              <span>Difference</span>
+              <span>{formatDifference(summary.totals.incomePlanned - summary.totals.incomeActual)}</span>
+            </div>
+          </div>
+          <div>
+            <strong>Expenses</strong>
+            <div className="budget-summary__figure">
+              <span>Planned</span>
+              <span>{formatCurrency(summary.totals.expensePlanned, baseCurrency)}</span>
+            </div>
+            <div className="budget-summary__figure">
+              <span>Actual</span>
+              <span>{formatCurrency(summary.totals.expenseActual, baseCurrency)}</span>
+            </div>
+            <div className="budget-summary__figure">
+              <span>Difference</span>
+              <span>{formatDifference(summary.totals.expensePlanned - summary.totals.expenseActual)}</span>
+            </div>
+          </div>
+        </div>
+        <div className="budget-summary__breakdown">
+          <div>
+            <h5>Income by master category</h5>
+            {summary.income.length === 0 ? (
+              <p className="muted-text">No income categories in this period.</p>
+            ) : (
+              summary.income.map((entry) => (
+                <div
+                  key={entry.master.id}
+                  className={`budget-summary__entry budget-status--${entry.status}`}
+                >
+                  <span>{entry.master.name}</span>
+                  <span>{formatDifference(entry.planned - entry.actual)}</span>
+                </div>
+              ))
+            )}
+          </div>
+          <div>
+            <h5>Expenses by master category</h5>
+            {summary.expenses.length === 0 ? (
+              <p className="muted-text">No expense categories in this period.</p>
+            ) : (
+              summary.expenses.map((entry) => (
+                <div
+                  key={entry.master.id}
+                  className={`budget-summary__entry budget-status--${entry.status}`}
+                >
+                  <span>{entry.master.name}</span>
+                  <span>{formatDifference(entry.planned - entry.actual)}</span>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </section>
+
+      <section className="budget-lines-section">
+        <header className="budget-lines__header">
+          <div>
+            <h4>Budget lines</h4>
+            <p className="muted-text">
+              Click any line to open the Transactions workspace filtered to its matching activity.
+            </p>
+          </div>
+          <div className="budget-lines__add">
+            <select
+              value={newLineCategory}
+              onChange={(event) => setNewLineCategory(event.target.value)}
+            >
+              <option value="">Select category</option>
+              {availableCategories.map((category) => (
+                <option key={category.id} value={category.id}>
+                  {category.name}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="chip-button"
+              onClick={handleAddLine}
+              disabled={!newLineCategory}
+            >
+              Add line
+            </button>
+          </div>
+        </header>
+        {lineMetrics.length === 0 ? (
+          <p className="muted-text">
+            Add budget lines to plan amounts for categories and compare real activity.
+          </p>
+        ) : (
+          <div className="budget-lines">
+            {lineMetrics.map((line) => {
+              const availableSubs = getAvailableSubCategories(line.line);
+              const safePercent = Math.max(line.percentUsed, 0);
+              const percentValue = Math.min(safePercent * 100, 999);
+              const progressWidth = Math.min(safePercent, 1) * 100;
+              return (
+                <article
+                  key={line.line.id}
+                  className={`budget-line budget-status--${line.status}`}
+                >
+                  <div className="budget-line__header">
+                    <button
+                      type="button"
+                      className="budget-line__name"
+                      onClick={() => handleDrilldown(line)}
+                    >
+                      {line.category?.name ?? 'Category'}
+                    </button>
+                    <span className="budget-line__status">{STATUS_LABELS[line.status]}</span>
+                  </div>
+                  <div className="budget-line__meta">
+                    <span>{FLOW_LABELS[line.flow]}</span>
+                    <label className="budget-line__toggle">
+                      <input
+                        type="checkbox"
+                        checked={line.line.mode === 'breakdown'}
+                        onChange={(event) => handleModeToggle(line, event.target.checked)}
+                      />
+                      Breakdown by sub-category
+                    </label>
+                  </div>
+                  <div className="budget-line__metrics">
+                    <label className="budget-line__plan">
+                      <span>Planned</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={line.storedPlan}
+                        onChange={(event) => handlePlanChange(line, event.target.value)}
+                      />
+                    </label>
+                    {form.rolloverEnabled && line.rolloverIn !== 0 ? (
+                      <div className="budget-line__rollover">
+                        <span>Rollover applied</span>
+                        <strong>{formatDifference(line.rolloverIn)}</strong>
+                      </div>
+                    ) : null}
+                    <div className="budget-line__figure">
+                      <span>Effective plan</span>
+                      <strong>{formatCurrency(line.effectivePlan, baseCurrency)}</strong>
+                    </div>
+                    <div className="budget-line__figure">
+                      <span>Actual</span>
+                      <strong>{formatCurrency(line.actual, baseCurrency)}</strong>
+                    </div>
+                    <div className="budget-line__figure">
+                      <span>Difference</span>
+                      <strong>{formatDifference(line.difference)}</strong>
+                    </div>
+                  </div>
+                  <div className="budget-line__progress">
+                    <div className={`budget-progress budget-progress--${line.status}`}>
+                      <div
+                        className="budget-progress__value"
+                        style={{ width: `${progressWidth}%` }}
+                      />
+                    </div>
+                    <span>{formatPercentage(percentValue, 1)}</span>
+                  </div>
+                  <div className="budget-line__actions">
+                    <button
+                      type="button"
+                      className="chip-button danger"
+                      onClick={() => handleRemoveLine(line)}
+                    >
+                      Remove line
+                    </button>
+                  </div>
+                  {line.line.mode === 'breakdown' ? (
+                    <div className="budget-sublines">
+                      <div className="budget-sublines__add">
+                        <select
+                          value={subLineSelections[line.line.id] ?? ''}
+                          onChange={(event) =>
+                            setSubLineSelections((current) => ({
+                              ...current,
+                              [line.line.id]: event.target.value
+                            }))
+                          }
+                        >
+                          <option value="">Select sub-category</option>
+                          {availableSubs.map((sub) => (
+                            <option key={sub.id} value={sub.id}>
+                              {sub.name}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          className="chip-button"
+                          onClick={() => handleAddSubLine(line)}
+                          disabled={!(subLineSelections[line.line.id] ?? '')}
+                        >
+                          Add sub-line
+                        </button>
+                      </div>
+                      {line.subLines.length === 0 ? (
+                        <p className="muted-text">
+                          Add sub-categories to plan detailed amounts for this category.
+                        </p>
+                      ) : (
+                        line.subLines.map((subLine) => {
+                          const subSafePercent = Math.max(subLine.percentUsed, 0);
+                          const subPercent = Math.min(subSafePercent * 100, 999);
+                          const subWidth = Math.min(subSafePercent, 1) * 100;
+                          return (
+                            <div
+                              key={subLine.subLine.id}
+                              className={`budget-subline budget-status--${subLine.status}`}
+                            >
+                              <div className="budget-subline__header">
+                                <button
+                                  type="button"
+                                  className="budget-line__name"
+                                  onClick={() => handleDrilldown(line, subLine)}
+                                >
+                                  {subLine.subCategory?.name ?? 'Sub-category'}
+                                </button>
+                                <span>{STATUS_LABELS[subLine.status]}</span>
+                              </div>
+                              <div className="budget-subline__metrics">
+                                <label className="budget-line__plan">
+                                  <span>Planned</span>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    step="0.01"
+                                    value={subLine.storedPlan}
+                                    onChange={(event) =>
+                                      handleSubLinePlanChange(subLine, event.target.value)
+                                    }
+                                  />
+                                </label>
+                                {form.rolloverEnabled && subLine.rolloverIn !== 0 ? (
+                                  <div className="budget-line__rollover">
+                                    <span>Rollover</span>
+                                    <strong>{formatDifference(subLine.rolloverIn)}</strong>
+                                  </div>
+                                ) : null}
+                                <div className="budget-line__figure">
+                                  <span>Effective</span>
+                                  <strong>{formatCurrency(subLine.effectivePlan, baseCurrency)}</strong>
+                                </div>
+                                <div className="budget-line__figure">
+                                  <span>Actual</span>
+                                  <strong>{formatCurrency(subLine.actual, baseCurrency)}</strong>
+                                </div>
+                                <div className="budget-line__figure">
+                                  <span>Difference</span>
+                                  <strong>{formatDifference(subLine.difference)}</strong>
+                                </div>
+                              </div>
+                              <div className="budget-line__progress">
+                                <div className={`budget-progress budget-progress--${subLine.status}`}>
+                                  <div
+                                    className="budget-progress__value"
+                                    style={{ width: `${subWidth}%` }}
+                                  />
+                                </div>
+                                <span>{formatPercentage(subPercent, 1)}</span>
+                              </div>
+                              <div className="budget-line__actions">
+                                <button
+                                  type="button"
+                                  className="chip-button danger"
+                                  onClick={() => removeBudgetSubLine(line.line.id, subLine.subLine.id)}
+                                >
+                                  Remove sub-line
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  ) : null}
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
     </div>
   );
 };
@@ -438,6 +995,7 @@ const Budgets = () => {
     state,
     createBudget,
     updateBudget,
+    setPrimaryBudget,
     duplicateBudget,
     archiveBudget,
     restoreBudget,
@@ -449,6 +1007,16 @@ const Budgets = () => {
   const [selectedBudgetId, setSelectedBudgetId] = useState<string | null>(
     () => activeBudgets[0]?.id ?? archivedBudgets[0]?.id ?? null
   );
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const payload = (location.state as { budgetId?: string } | null)?.budgetId;
+    if (payload) {
+      setSelectedBudgetId(payload);
+      navigate('.', { replace: true, state: null });
+    }
+  }, [location.state, navigate]);
 
   useEffect(() => {
     if (!selectedBudgetId) {
@@ -540,6 +1108,7 @@ const Budgets = () => {
                   onArchive={() => handleArchive(budget)}
                   onRestore={() => restoreBudget(budget.id)}
                   onDelete={() => handleDelete(budget)}
+                  onSetPrimary={() => setPrimaryBudget(budget.id)}
                 />
               ))}
               {archivedBudgets.length > 0 ? (
@@ -557,6 +1126,7 @@ const Budgets = () => {
                         onArchive={() => handleArchive(budget)}
                         onRestore={() => restoreBudget(budget.id)}
                         onDelete={() => handleDelete(budget)}
+                        onSetPrimary={() => setPrimaryBudget(budget.id)}
                       />
                     ))}
                   </div>

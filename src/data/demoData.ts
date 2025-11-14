@@ -2,6 +2,7 @@ import {
   Account,
   AccountCollection,
   Budget,
+  BudgetLine,
   Category,
   CurrencyCode,
   DataState,
@@ -55,6 +56,7 @@ type DemoBuildResult = {
   providerDirectory: string[];
   accountCollections: AccountCollection[];
   budgets: Budget[];
+  budgetLines: BudgetLine[];
   payees: Payee[];
   tags: Tag[];
   transactions: Transaction[];
@@ -455,6 +457,8 @@ const buildDemoData = (): DemoBuildResult => {
 
   const budgets: Budget[] = [];
 
+  const budgetLines = [] as BudgetLine[];
+
   const importDefaults: ImportDefaults = {
     dateFormat: 'YYYY-MM-DD',
     decimalSeparator: '.',
@@ -478,6 +482,7 @@ const buildDemoData = (): DemoBuildResult => {
     accounts,
     accountCollections,
     budgets,
+    budgetLines,
     payees,
     tags,
     transactions,
@@ -497,6 +502,7 @@ export const buildInitialState = (): DataState => {
     accounts: demo.accounts,
     accountCollections: demo.accountCollections,
     budgets: demo.budgets,
+    budgetLines: demo.budgetLines,
     payees: demo.payees,
     tags: demo.tags,
     transactions: demo.transactions,
