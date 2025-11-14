@@ -1,0 +1,77 @@
+.report-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding: 1.5rem;
+  border-radius: 16px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  margin-bottom: 1.5rem;
+}
+
+.report-filters__group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.report-filters__dates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.report-filters__dates label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+  min-width: 160px;
+}
+
+.report-filters__grid {
+  display: grid;
+  gap: 1rem;
+}
+
+@media (min-width: 960px) {
+  .report-filters__grid {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  }
+}
+
+.report-filters__grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+}
+
+.report-filters__grid select,
+.report-filters__dates input[type='date'] {
+  background: rgba(15, 23, 42, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 0.5rem;
+  color: #f8fafc;
+}
+
+.report-filters__grid select {
+  min-height: 120px;
+}
+
+.report-filters__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.report-filters__actions .secondary-button {
+  align-self: flex-start;
+}
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+

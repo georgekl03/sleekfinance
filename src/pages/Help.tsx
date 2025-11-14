@@ -8,6 +8,27 @@ const Help = () => (
       description="Guides for managing accounts, budgets, providers, collections, categories, and payees."
     />
     <div className="content-card">
+      <h3>Reports workspace</h3>
+      <p className="muted-text">
+        The Reports page offers read-only analytics across net worth, flows, categories, collections,
+        providers, and income allocations. A shared filter bar lets you switch between preset ranges
+        (this month, last month, this year, last year) or a custom window, and you can toggle whether
+        presets follow calendar or UK tax-year boundaries. Filters for accounts, providers, collections,
+        flow types, and master categories apply consistently to every report, while totals always respect
+        your Settings → base currency and exchange-rate table.
+      </p>
+      <div className="help-diagram">
+        <strong>Report tips</strong>
+        <pre>{`Net Worth Over Time → monthly assets minus liabilities`}
+{`Income vs Expense → inflow/outflow comparison, transfers excluded by default`}
+{`Category Trends → pick categories/sub-categories to track monthly totals`}
+{`Collection & Provider → absolute spend/income by grouping and institution`}
+{`Allocation Summary → aggregates income allocation purposes; run rules first`}
+{`Export CSV → captures the active filters, range, and table values for each report`}</pre>
+        <Tooltip label="Reports are analytical only—they never mutate transactions, budgets, rules, or allocations." />
+      </div>
+    </div>
+    <div className="content-card">
       <h3>Interest analytics</h3>
       <p className="muted-text">
         The Interest view tracks transactions flagged as interest flows and keeps native currency amounts alongside
