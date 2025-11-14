@@ -1,3 +1,33 @@
+## Reports Module
+
+SleekFinance now includes a dedicated **Reports** workspace that surfaces read-only analytics for every
+major dataset without modifying the underlying records. A shared filter header lets you pick preset or
+custom date ranges, toggle between calendar and UK tax-year logic, and scope the analysis to specific
+accounts, providers, collections, flow types, or master categories. All totals are expressed in your
+configured base currency using the existing exchange-rate table, and CSV exports respect the current filters
+so you can continue analysis elsewhere. The `python3 launch.py` one-command launcher still starts the entire
+application—no additional switches are required to access the new reporting views.
+
+- **Net Worth Over Time** – charts assets minus liabilities by month using opening balances plus
+  transactions for the filtered accounts. Each point is labelled as an approximation derived from the
+  available history, and a supporting table calls out the base-currency totals.
+- **Income vs Expense** – summarises inflows and outflows by month and master category, excluding transfers
+  by default. A combined table and multi-line chart highlight income, expense, and net positions for every
+  period, while a secondary matrix shows the category-level contribution.
+- **Category Trends** – plot one or more categories (and optional sub-categories) to see how spending or
+  income evolves over time. If nothing is selected the report highlights the top categories within the
+  filtered range; the table mirrors the chart with raw values per month.
+- **Collection & Provider Breakdown** – compares the absolute value of the selected flows grouped by
+  account collection and provider. Horizontal bar charts and tables reveal which institutions and custom
+  groupings dominate the filtered activity.
+- **Allocation Summary** – aggregates income allocation entries across the chosen range so you can see how
+  virtual buckets such as Rainy Day or Holidays compare. The view surfaces total allocated amounts,
+  percentages of overall income, and the native-currency breakdown that fed each purpose. When no data is
+  available, the report prompts you to configure or run allocation rules first.
+
+Every report offers a CSV export button that captures the underlying table data along with the active date
+range, making it easy to archive analyses or share them externally.
+
 ## Interest and UK Tax-Year Handling
 
 SleekFinance now includes a dedicated **Interest** workspace that surfaces savings and investment interest
@@ -99,6 +129,8 @@ combination to sign in.
 
 ## Environment notes
 
+- Reports reuse the existing exchange-rate table and base currency settings—no extra environment variables
+  or feature flags are required to enable the analytics workspace.
 - Interest analytics reuse your configured base currency and exchange rate table—no new environment variables are required for multi-currency or tax-year reporting.
 - No new configuration keys were introduced for the budgeting upgrades. The existing Settings fields for
   base currency and manual exchange rates continue to drive all conversions, and planned amounts always
