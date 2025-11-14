@@ -1,6 +1,7 @@
 import {
   Account,
   AccountCollection,
+  AllocationRule,
   Budget,
   BudgetLine,
   Category,
@@ -14,7 +15,8 @@ import {
   SettingsState,
   SubCategory,
   Tag,
-  Transaction
+  Transaction,
+  TransactionAllocation
 } from './models';
 import { generateId } from '../utils/id';
 
@@ -60,6 +62,8 @@ type DemoBuildResult = {
   payees: Payee[];
   tags: Tag[];
   transactions: Transaction[];
+  allocationRules: AllocationRule[];
+  transactionAllocations: TransactionAllocation[];
   settings: SettingsState;
   rules: Rule[];
   ruleLogs: RuleRunLogEntry[];
@@ -459,6 +463,10 @@ const buildDemoData = (): DemoBuildResult => {
 
   const budgetLines = [] as BudgetLine[];
 
+  const allocationRules: AllocationRule[] = [];
+
+  const transactionAllocations: TransactionAllocation[] = [];
+
   const importDefaults: ImportDefaults = {
     dateFormat: 'YYYY-MM-DD',
     decimalSeparator: '.',
@@ -486,6 +494,8 @@ const buildDemoData = (): DemoBuildResult => {
     payees,
     tags,
     transactions,
+    allocationRules,
+    transactionAllocations,
     settings,
     rules: [],
     ruleLogs: []
@@ -506,6 +516,8 @@ export const buildInitialState = (): DataState => {
     payees: demo.payees,
     tags: demo.tags,
     transactions: demo.transactions,
+    allocationRules: demo.allocationRules,
+    transactionAllocations: demo.transactionAllocations,
     importBatches: [],
     rules: [],
     ruleLogs: [],

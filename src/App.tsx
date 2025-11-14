@@ -10,6 +10,7 @@ import Categories from './pages/Categories';
 import Payees from './pages/Payees';
 import Budgets from './pages/Budgets';
 import Rules from './pages/Rules';
+import Allocations from './pages/Allocations';
 import Reports from './pages/Reports';
 import Investments from './pages/Investments';
 import Imports from './pages/Imports';
@@ -39,6 +40,7 @@ const AppShell = () => {
           <Route path="/payees" element={<Payees />} />
           <Route path="/budgets" element={<Budgets />} />
           <Route path="/rules" element={<Rules />} />
+          <Route path="/allocations" element={<Allocations />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/investments" element={<Investments />} />
           <Route path="/imports" element={<Imports />} />

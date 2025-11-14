@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import PageHeader from '../components/PageHeader';
 import Tooltip from '../components/Tooltip';
 import { useData } from '../data/DataContext';
-import { AccountCollection, Budget } from '../data/models';
+import { AccountCollection, Budget, TransactionAllocation } from '../data/models';
 import {
   applyBudgetPeriodDraft,
   BUDGET_PERIOD_TYPE_LABELS,
@@ -11,6 +11,7 @@ import {
   getBudgetPeriodInfo
 } from '../utils/budgetPeriods';
 import { formatCurrency, formatPercentage } from '../utils/format';
+import { formatAllocationNativeSummary } from '../utils/allocations';
 import {
   calculateBudgetPeriod,
   BudgetLineMetric,
@@ -54,6 +55,20 @@ const FLOW_LABELS: Record<BudgetLineMetric['flow'], string> = {
   in: 'Income',
   out: 'Expense',
   transfer: 'Transfer'
+};
+
+type AllocationPurposeSummary = {
+  ruleId: string;
+  purposeId: string;
+  ruleName: string;
+  purposeName: string;
+  baseAmount: number;
+  nativeAmounts: Record<string, number>;
+};
+
+type AllocationBreakdown = {
+  totalBase: number;
+  purposes: AllocationPurposeSummary[];
 };
 
 type BudgetFormState = {
@@ -441,6 +456,122 @@ const BudgetEditor = ({ budget, collections, onClose }: BudgetEditorProps) => {
 
   const summary = computation.summary;
   const lineMetrics = computation.lines;
+  const allocationBreakdowns = useMemo(() => {
+    const incomeLines = lineMetrics.filter((line) => line.flow === 'in');
+    if (incomeLines.length === 0) {
+      return { lines: new Map<string, AllocationBreakdown>(), subLines: new Map<string, AllocationBreakdown>() };
+    }
+    const startIso = periodInfo.start.toISOString().slice(0, 10);
+    const endIso = periodInfo.end.toISOString().slice(0, 10);
+    const allowedAccounts = new Set(includedAccounts.map((account) => account.id));
+    const transactionsById = new Map(state.transactions.map((txn) => [txn.id, txn]));
+    const ruleLookup = new Map(state.allocationRules.map((rule) => [rule.id, rule]));
+    const linesByCategory = new Map<string, string>();
+    const subLinesByCategory = new Map<string, string>();
+
+    incomeLines.forEach((line) => {
+      if (line.line.categoryId) {
+        linesByCategory.set(line.line.categoryId, line.line.id);
+      }
+      line.subLines.forEach((subLine) => {
+        if (subLine.subLine.subCategoryId) {
+          subLinesByCategory.set(subLine.subLine.subCategoryId, subLine.subLine.id);
+        }
+      });
+    });
+
+    const createContainer = () =>
+      new Map<
+        string,
+        {
+          totalBase: number;
+          purposes: Map<string, AllocationPurposeSummary>;
+        }
+      >();
+
+    const lineContainer = createContainer();
+    const subLineContainer = createContainer();
+
+    const pushAllocation = (
+      container: Map<string, { totalBase: number; purposes: Map<string, AllocationPurposeSummary> }>,
+      key: string,
+      allocation: TransactionAllocation,
+      ruleName: string,
+      purposeName: string
+    ) => {
+      let entry = container.get(key);
+      if (!entry) {
+        entry = { totalBase: 0, purposes: new Map() };
+        container.set(key, entry);
+      }
+      entry.totalBase += allocation.baseAmount;
+      const purposeKey = `${allocation.ruleId}:${allocation.purposeId}`;
+      let purposeEntry = entry.purposes.get(purposeKey);
+      if (!purposeEntry) {
+        purposeEntry = {
+          ruleId: allocation.ruleId,
+          purposeId: allocation.purposeId,
+          ruleName,
+          purposeName,
+          baseAmount: 0,
+          nativeAmounts: {}
+        };
+        entry.purposes.set(purposeKey, purposeEntry);
+      }
+      purposeEntry.baseAmount += allocation.baseAmount;
+      purposeEntry.nativeAmounts[allocation.nativeCurrency] =
+        (purposeEntry.nativeAmounts[allocation.nativeCurrency] ?? 0) + allocation.nativeAmount;
+    };
+
+    state.transactionAllocations.forEach((allocation) => {
+      const transaction = transactionsById.get(allocation.transactionId);
+      if (!transaction) return;
+      if (!allowedAccounts.has(transaction.accountId)) return;
+      const txnDate = transaction.date.slice(0, 10);
+      if (txnDate < startIso || txnDate > endIso) return;
+      const lineId = transaction.categoryId ? linesByCategory.get(transaction.categoryId) : undefined;
+      const subLineId = transaction.subCategoryId
+        ? subLinesByCategory.get(transaction.subCategoryId)
+        : undefined;
+      if (!lineId && !subLineId) return;
+      const rule = ruleLookup.get(allocation.ruleId);
+      const purpose = rule?.purposes.find((entry) => entry.id === allocation.purposeId);
+      const ruleName = rule?.name ?? 'Allocation rule';
+      const purposeName = purpose?.name ?? 'Purpose';
+      if (lineId) {
+        pushAllocation(lineContainer, lineId, allocation, ruleName, purposeName);
+      }
+      if (subLineId) {
+        pushAllocation(subLineContainer, subLineId, allocation, ruleName, purposeName);
+      }
+    });
+
+    const convert = (
+      container: Map<string, { totalBase: number; purposes: Map<string, AllocationPurposeSummary> }>
+    ) => {
+      const result = new Map<string, AllocationBreakdown>();
+      container.forEach((value, key) => {
+        result.set(key, {
+          totalBase: value.totalBase,
+          purposes: Array.from(value.purposes.values()).sort((a, b) => b.baseAmount - a.baseAmount)
+        });
+      });
+      return result;
+    };
+
+    return {
+      lines: convert(lineContainer),
+      subLines: convert(subLineContainer)
+    };
+  }, [
+    lineMetrics,
+    includedAccounts,
+    periodInfo.start.getTime(),
+    periodInfo.end.getTime(),
+    state.transactionAllocations,
+    state.transactions,
+    state.allocationRules
+  ]);
 
   return (
     <div className="budget-editor">
@@ -795,6 +926,12 @@ const BudgetEditor = ({ budget, collections, onClose }: BudgetEditorProps) => {
           <div className="budget-lines">
             {lineMetrics.map((line) => {
               const availableSubs = getAvailableSubCategories(line.line);
+              const lineAllocation = allocationBreakdowns.lines.get(line.line.id) ?? null;
+              const lineActualBase = Math.max(line.actual, 0);
+              const coverage =
+                lineAllocation && lineActualBase > 0
+                  ? Math.min(Math.max((lineAllocation.totalBase / lineActualBase) * 100, 0), 1000)
+                  : 0;
               const safePercent = Math.max(line.percentUsed, 0);
               const percentValue = Math.min(safePercent * 100, 999);
               const progressWidth = Math.min(safePercent, 1) * 100;
@@ -872,6 +1009,49 @@ const BudgetEditor = ({ budget, collections, onClose }: BudgetEditorProps) => {
                       Remove line
                     </button>
                   </div>
+                  {line.flow === 'in' ? (
+                    <div className="budget-line__allocations">
+                      <div className="budget-line__allocations-header">
+                        <h5>Allocation coverage</h5>
+                        <span className="muted-text">
+                          {lineAllocation
+                            ? `${formatCurrency(lineAllocation.totalBase, baseCurrency)} allocated${
+                                lineActualBase > 0
+                                  ? ` • ${formatPercentage(coverage, 1)} of actual income`
+                                  : ''
+                              }`
+                            : 'No allocations matched this line for the selected period.'}
+                        </span>
+                      </div>
+                      {lineAllocation ? (
+                        <div className="budget-allocation-list">
+                          {lineAllocation.purposes.map((purpose) => {
+                            const share = lineAllocation.totalBase
+                              ? (purpose.baseAmount / lineAllocation.totalBase) * 100
+                              : 0;
+                            return (
+                              <div
+                                key={`${purpose.ruleId}:${purpose.purposeId}`}
+                                className="budget-allocation-item"
+                              >
+                                <div className="budget-allocation-item__meta">
+                                  <strong>{purpose.purposeName}</strong>
+                                  <span className="muted-text">{purpose.ruleName}</span>
+                                </div>
+                                <div className="budget-allocation-item__figures">
+                                  <span>{formatCurrency(purpose.baseAmount, baseCurrency)}</span>
+                                  <span className="muted-text">{formatPercentage(share, 1)}</span>
+                                </div>
+                                <p className="muted-text">
+                                  {formatAllocationNativeSummary(purpose.nativeAmounts)}
+                                </p>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
                   {line.line.mode === 'breakdown' ? (
                     <div className="budget-sublines">
                       <div className="budget-sublines__add">
@@ -909,6 +1089,16 @@ const BudgetEditor = ({ budget, collections, onClose }: BudgetEditorProps) => {
                           const subSafePercent = Math.max(subLine.percentUsed, 0);
                           const subPercent = Math.min(subSafePercent * 100, 999);
                           const subWidth = Math.min(subSafePercent, 1) * 100;
+                          const subAllocation =
+                            allocationBreakdowns.subLines.get(subLine.subLine.id) ?? null;
+                          const subActualBase = Math.max(subLine.actual, 0);
+                          const subCoverage =
+                            subAllocation && subActualBase > 0
+                              ? Math.min(
+                                  Math.max((subAllocation.totalBase / subActualBase) * 100, 0),
+                                  1000
+                                )
+                              : 0;
                           return (
                             <div
                               key={subLine.subLine.id}
@@ -974,6 +1164,54 @@ const BudgetEditor = ({ budget, collections, onClose }: BudgetEditorProps) => {
                                   Remove sub-line
                                 </button>
                               </div>
+                              {line.flow === 'in' ? (
+                                <div className="budget-subline__allocations">
+                                  <div className="budget-line__allocations-header">
+                                    <h6>Allocations</h6>
+                                    <span className="muted-text">
+                                      {subAllocation
+                                        ? `${formatCurrency(
+                                            subAllocation.totalBase,
+                                            baseCurrency
+                                          )} allocated${
+                                            subActualBase > 0
+                                              ? ` • ${formatPercentage(subCoverage, 1)} of actual`
+                                              : ''
+                                          }`
+                                        : 'No matched allocations for this sub-category.'}
+                                    </span>
+                                  </div>
+                                  {subAllocation ? (
+                                    <div className="budget-allocation-list">
+                                      {subAllocation.purposes.map((purpose) => {
+                                        const share = subAllocation.totalBase
+                                          ? (purpose.baseAmount / subAllocation.totalBase) * 100
+                                          : 0;
+                                        return (
+                                          <div
+                                            key={`${purpose.ruleId}:${purpose.purposeId}`}
+                                            className="budget-allocation-item"
+                                          >
+                                            <div className="budget-allocation-item__meta">
+                                              <strong>{purpose.purposeName}</strong>
+                                              <span className="muted-text">{purpose.ruleName}</span>
+                                            </div>
+                                            <div className="budget-allocation-item__figures">
+                                              <span>
+                                                {formatCurrency(purpose.baseAmount, baseCurrency)}
+                                              </span>
+                                              <span className="muted-text">{formatPercentage(share, 1)}</span>
+                                            </div>
+                                            <p className="muted-text">
+                                              {formatAllocationNativeSummary(purpose.nativeAmounts)}
+                                            </p>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  ) : null}
+                                </div>
+                              ) : null}
                             </div>
                           );
                         })
