@@ -9,6 +9,9 @@ import {
 import {
   Account,
   AccountCollection,
+  Budget,
+  BudgetInclusionMode,
+  BudgetPeriodType,
   Category,
   CurrencyCode,
   DataActionError,
@@ -36,6 +39,10 @@ import {
 import { buildDemoOnlyData, buildInitialState, MASTER_CATEGORIES } from './demoData';
 import { generateId } from '../utils/id';
 import { logError, logInfo } from '../utils/logger';
+import {
+  applyBudgetPeriodDraft,
+  buildBudgetPeriodState
+} from '../utils/budgetPeriods';
 
 const STORAGE_KEY = 'sleekfinance.stage3.data';
 
@@ -191,6 +198,45 @@ const migrateState = (state: DataState): DataState => {
         isDemo: (group as { isDemo?: boolean }).isDemo ?? false
       }));
 
+  const rawBudgets = (state as unknown as { budgets?: Budget[] }).budgets ?? [];
+  const budgets = Array.isArray(rawBudgets)
+    ? rawBudgets.map((budget) => {
+        const periodType: BudgetPeriodType = budget.periodType ?? 'monthly';
+        const periodState = buildBudgetPeriodState({
+          periodType,
+          startMonth:
+            typeof budget.startMonth === 'number' ? budget.startMonth : undefined,
+          startYear: typeof budget.startYear === 'number' ? budget.startYear : undefined,
+          startDayOfWeek:
+            typeof budget.startDayOfWeek === 'number' ? budget.startDayOfWeek : undefined,
+          anchorDate: typeof budget.anchorDate === 'string' ? budget.anchorDate : undefined
+        });
+        const includeMode: BudgetInclusionMode =
+          budget.includeMode === 'collections' ? 'collections' : 'all';
+        const uniqueCollections = Array.isArray(budget.collectionIds)
+          ? Array.from(
+              new Set(
+                budget.collectionIds.filter((collectionId): collectionId is string =>
+                  typeof collectionId === 'string'
+                )
+              )
+            )
+          : [];
+        const createdAt = budget.createdAt ?? new Date().toISOString();
+        const updatedAt = budget.updatedAt ?? createdAt;
+        return {
+          ...budget,
+          ...periodState,
+          name: budget.name?.trim() || 'Untitled budget',
+          includeMode,
+          collectionIds: includeMode === 'collections' ? uniqueCollections : [],
+          archived: Boolean(budget.archived),
+          createdAt,
+          updatedAt
+        } satisfies Budget;
+      })
+    : [];
+
   const existingDirectory = Array.isArray((state as unknown as { providerDirectory?: string[] }).providerDirectory)
     ? ((state as unknown as { providerDirectory: string[] }).providerDirectory as string[])
     : [];
@@ -209,6 +255,7 @@ const migrateState = (state: DataState): DataState => {
   return {
     ...(restState as DataState),
     accounts,
+    budgets,
     transactions,
     importBatches: state.importBatches ?? [],
     rules: state.rules ?? [],
@@ -244,6 +291,21 @@ type CreateAccountCollectionInput = {
 };
 
 type UpdateAccountCollectionInput = Partial<CreateAccountCollectionInput>;
+
+type CreateBudgetInput = {
+  name: string;
+  periodType: BudgetPeriodType;
+  startMonth?: number;
+  startYear?: number;
+  startDayOfWeek?: number;
+  anchorDate?: string;
+  includeMode: BudgetInclusionMode;
+  collectionIds: string[];
+};
+
+type UpdateBudgetInput = Partial<CreateBudgetInput> & {
+  archived?: boolean;
+};
 
 type CreateCategoryInput = {
   masterCategoryId: string;
@@ -299,6 +361,12 @@ type DataContextValue = {
   unarchiveAccount: (id: string) => void;
   setAccountInclusion: (id: string, mode: InclusionMode) => DataActionError | null;
   setCollectionsForAccount: (accountId: string, collectionIds: string[]) => DataActionError | null;
+  createBudget: (input?: Partial<CreateBudgetInput>) => Budget;
+  updateBudget: (id: string, input: UpdateBudgetInput) => DataActionError | null;
+  duplicateBudget: (id: string) => Budget | null;
+  archiveBudget: (id: string) => void;
+  restoreBudget: (id: string) => void;
+  deleteBudget: (id: string) => void;
   createAccountCollection: (
     input: CreateAccountCollectionInput
   ) => DataActionError | null;
@@ -1228,6 +1296,181 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     }));
     logInfo('Account collections updated', { accountId, count: collectionIds.length });
     return null;
+  };
+
+  const makeUniqueBudgetName = (preferred: string) => {
+    const existingNames = new Set(
+      state.budgets.map((budget) => budget.name.toLocaleLowerCase())
+    );
+    if (!existingNames.has(preferred.toLocaleLowerCase())) {
+      return preferred;
+    }
+    let counter = 2;
+    let candidate = `${preferred} (${counter})`;
+    while (existingNames.has(candidate.toLocaleLowerCase())) {
+      counter += 1;
+      candidate = `${preferred} (${counter})`;
+    }
+    return candidate;
+  };
+
+  const createBudget = (input?: Partial<CreateBudgetInput>): Budget => {
+    const now = new Date();
+    const baseName = input?.name?.trim() || 'New budget';
+    const name = makeUniqueBudgetName(baseName);
+    const periodState = buildBudgetPeriodState({
+      periodType: input?.periodType ?? 'monthly',
+      startMonth: input?.startMonth,
+      startYear: input?.startYear,
+      startDayOfWeek: input?.startDayOfWeek,
+      anchorDate: input?.anchorDate
+    }, now);
+    const includeMode: BudgetInclusionMode =
+      input?.includeMode === 'collections' ? 'collections' : 'all';
+    const validCollections = includeMode === 'collections'
+      ? (input?.collectionIds ?? []).filter((collectionId) =>
+          state.accountCollections.some((collection) => collection.id === collectionId)
+        )
+      : [];
+    const budget: Budget = {
+      id: generateId('bdg'),
+      name,
+      ...periodState,
+      includeMode,
+      collectionIds: Array.from(new Set(validCollections)),
+      archived: false,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString()
+    };
+
+    updateState((prev) => ({ ...prev, budgets: [...prev.budgets, budget] }));
+    logInfo('Budget created', { id: budget.id });
+    return budget;
+  };
+
+  const updateBudget = (
+    id: string,
+    input: UpdateBudgetInput
+  ): DataActionError | null => {
+    const trimmedName =
+      input.name !== undefined ? input.name.trim() : undefined;
+    if (trimmedName !== undefined && !trimmedName) {
+      return { title: 'Budget name required', description: 'Enter a budget name.' };
+    }
+
+    if (input.includeMode === 'collections') {
+      const invalidCollections = (input.collectionIds ?? []).filter(
+        (collectionId) =>
+          !state.accountCollections.some((collection) => collection.id === collectionId)
+      );
+      if (invalidCollections.length > 0) {
+        return {
+          title: 'Unknown collection',
+          description: 'Choose from available collections when scoping a budget.'
+        };
+      }
+    }
+
+    let updated: Budget | null = null;
+    updateState((prev) => {
+      const index = prev.budgets.findIndex((budget) => budget.id === id);
+      if (index === -1) {
+        return prev;
+      }
+      const budget = prev.budgets[index];
+      const includeMode: BudgetInclusionMode =
+        input.includeMode ?? budget.includeMode;
+      const collectionIds = includeMode === 'collections'
+        ? Array.from(
+            new Set(
+              (input.collectionIds ?? budget.collectionIds).filter((collectionId) =>
+                prev.accountCollections.some((collection) => collection.id === collectionId)
+              )
+            )
+          )
+        : [];
+      const periodDraft = applyBudgetPeriodDraft(
+        budget,
+        {
+          periodType: input.periodType,
+          startMonth: input.startMonth,
+          startYear: input.startYear,
+          startDayOfWeek: input.startDayOfWeek,
+          anchorDate: input.anchorDate
+        }
+      );
+      const nextBudget: Budget = {
+        ...periodDraft,
+        name: trimmedName ?? budget.name,
+        includeMode,
+        collectionIds,
+        archived: input.archived ?? budget.archived,
+        createdAt: budget.createdAt,
+        updatedAt: new Date().toISOString()
+      };
+      const budgets = [...prev.budgets];
+      budgets[index] = nextBudget;
+      updated = nextBudget;
+      return { ...prev, budgets };
+    });
+    if (!updated) {
+      return { title: 'Budget missing', description: 'Select an existing budget first.' };
+    }
+    logInfo('Budget updated', { id });
+    return null;
+  };
+
+  const duplicateBudget = (id: string): Budget | null => {
+    const source = state.budgets.find((budget) => budget.id === id);
+    if (!source) {
+      return null;
+    }
+    const now = new Date();
+    const duplicateName = makeUniqueBudgetName(`${source.name} (copy)`);
+    const duplicate: Budget = {
+      ...source,
+      id: generateId('bdg'),
+      name: duplicateName,
+      archived: false,
+      collectionIds: [...source.collectionIds],
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString()
+    };
+    updateState((prev) => ({ ...prev, budgets: [...prev.budgets, duplicate] }));
+    logInfo('Budget duplicated', { id: duplicate.id, source: id });
+    return duplicate;
+  };
+
+  const archiveBudget = (id: string) => {
+    updateState((prev) => ({
+      ...prev,
+      budgets: prev.budgets.map((budget) =>
+        budget.id === id
+          ? { ...budget, archived: true, updatedAt: new Date().toISOString() }
+          : budget
+      )
+    }));
+    logInfo('Budget archived', { id });
+  };
+
+  const restoreBudget = (id: string) => {
+    updateState((prev) => ({
+      ...prev,
+      budgets: prev.budgets.map((budget) =>
+        budget.id === id
+          ? { ...budget, archived: false, updatedAt: new Date().toISOString() }
+          : budget
+      )
+    }));
+    logInfo('Budget restored', { id });
+  };
+
+  const deleteBudget = (id: string) => {
+    updateState((prev) => ({
+      ...prev,
+      budgets: prev.budgets.filter((budget) => budget.id !== id)
+    }));
+    logInfo('Budget deleted', { id });
   };
 
   const createAccountCollection = (
@@ -2316,6 +2559,12 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       unarchiveAccount,
       setAccountInclusion,
       setCollectionsForAccount,
+      createBudget,
+      updateBudget,
+      duplicateBudget,
+      archiveBudget,
+      restoreBudget,
+      deleteBudget,
       createAccountCollection,
       updateAccountCollection,
       deleteAccountCollection,
