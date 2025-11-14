@@ -1,3 +1,31 @@
+## Investments v1
+
+SleekFinance now ships with a dedicated **Investments** workspace that layers portfolio analytics on
+top of your existing accounts, providers, collections, and multi-currency settings. The page opens
+from the main navigation and automatically scopes its portfolio summary, holdings table, realised
+events, and price list to whatever account, provider, or collection filters you apply. Base and
+native currency conversions reuse the manual exchange-rate table from Settings, so every cost,
+value, and P/L figure is clearly labelled and convertible back to your configured base currency on
+request.
+
+- **Holdings management** – Add, edit, archive, or restore positions tied to investment accounts.
+  Each holding tracks quantity, cost basis (total or per unit), price currency, asset type, and
+  optional notes so that performance and allocation breakdowns stay consistent over time.
+- **Manual price tracking** – Capture prices one symbol at a time or upload a simple CSV containing
+  symbol, price, currency, and date. Prices persist as history entries and refresh unrealised
+  metrics as soon as they are saved.
+- **Portfolio summary** – View aggregated portfolio value, cost, unrealised P/L, and return with
+  base-currency conversions, plus breakdowns by account, price currency, and asset type for the
+  current filter set.
+- **Realised events** – Record partial or full sales directly against a holding, specify proceeds,
+  currency, and date, and the system stores the realised base-currency gain while adjusting the
+  remaining quantity and cost basis.
+
+All flows respect the existing account collections and provider filters, and the holdings table
+offers a toggle to reveal base-currency equivalents alongside the native account amounts. The
+`python3 launch.py` one-command launcher still starts the full application—no extra switches are
+required to reach the Investments view.
+
 ## Reports Module
 
 SleekFinance now includes a dedicated **Reports** workspace that surfaces read-only analytics for every
@@ -129,6 +157,8 @@ combination to sign in.
 
 ## Environment notes
 
+- Investments reuse the existing base-currency and exchange-rate configuration—no new environment
+  variables are required for holdings, pricing, or realised P/L tracking.
 - Reports reuse the existing exchange-rate table and base currency settings—no extra environment variables
   or feature flags are required to enable the analytics workspace.
 - Interest analytics reuse your configured base currency and exchange rate table—no new environment variables are required for multi-currency or tax-year reporting.

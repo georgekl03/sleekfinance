@@ -113,6 +113,50 @@ export type Tag = {
   isDemo: boolean;
 };
 
+export type InvestmentHolding = {
+  id: string;
+  accountId: string;
+  symbol: string;
+  name: string | null;
+  assetType: string | null;
+  quantity: number;
+  totalCost: number;
+  costCurrency: CurrencyCode;
+  priceCurrency: CurrencyCode;
+  notes?: string | null;
+  archived: boolean;
+  createdAt: string;
+  updatedAt: string;
+  isDemo: boolean;
+};
+
+export type InvestmentPrice = {
+  id: string;
+  symbol: string;
+  price: number;
+  currency: CurrencyCode;
+  priceDate: string;
+  source?: string | null;
+  createdAt: string;
+};
+
+export type InvestmentSale = {
+  id: string;
+  holdingId: string;
+  saleDate: string;
+  quantity: number;
+  proceeds: number;
+  proceedsCurrency: CurrencyCode;
+  proceedsBase: number;
+  costBasis: number;
+  costCurrency: CurrencyCode;
+  costBasisBase: number;
+  realisedBase: number;
+  baseCurrency: CurrencyCode;
+  notes?: string | null;
+  createdAt: string;
+};
+
 export type AllocationPurposeTargetType = 'account' | 'collection' | 'label';
 
 export type AllocationRulePurpose = {
@@ -299,6 +343,9 @@ export type DataState = {
   budgetLines: BudgetLine[];
   payees: Payee[];
   tags: Tag[];
+  investmentHoldings: InvestmentHolding[];
+  investmentPrices: InvestmentPrice[];
+  investmentSales: InvestmentSale[];
   transactions: Transaction[];
   allocationRules: AllocationRule[];
   transactionAllocations: TransactionAllocation[];

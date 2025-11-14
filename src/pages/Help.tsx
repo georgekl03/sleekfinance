@@ -8,6 +8,29 @@ const Help = () => (
       description="Guides for managing accounts, budgets, providers, collections, categories, and payees."
     />
     <div className="content-card">
+      <h3>Investments workspace</h3>
+      <p className="muted-text">
+        The Investments page groups holdings by investment account, converts every value into your
+        base currency on demand, and respects the same filters for accounts, providers, and
+        collections that power the rest of SleekFinance. Use <strong>Add holding</strong> to record
+        quantity, cost basis (total or per-unit), price currency, and optional asset type. Update or
+        archive entries from the manage drawer, record partial sales to capture realised gains, and
+        import manual prices via CSV when you want the unrealised metrics to refresh immediately.
+      </p>
+      <div className="help-diagram">
+        <strong>Investments quick start</strong>
+        <pre>
+          {[
+            'Holdings → Add holding → pick investment account → set quantity + cost',
+            'Prices → Save price or import CSV (symbol, price, currency, date)',
+            'Summary → toggle base currency view, breakdown by account/currency/asset type',
+            'Record sale → specify quantity + proceeds to adjust cost basis and log realised P/L'
+          ].join('\n')}
+        </pre>
+        <Tooltip label="Base currency conversions reuse the manual exchange-rate table from Settings." />
+      </div>
+    </div>
+    <div className="content-card">
       <h3>Reports workspace</h3>
       <p className="muted-text">
         The Reports page offers read-only analytics across net worth, flows, categories, collections,
