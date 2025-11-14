@@ -9,6 +9,11 @@ import {
 import {
   Account,
   AccountCollection,
+  AllocationCondition,
+  AllocationRule,
+  AllocationRuleBase,
+  AllocationPurposeTargetType,
+  AllocationRulePurpose,
   Budget,
   BudgetLine,
   BudgetLineMode,
@@ -37,7 +42,8 @@ import {
   SettingsState,
   SubCategory,
   Tag,
-  Transaction
+  Transaction,
+  TransactionAllocation
 } from './models';
 import { buildDemoOnlyData, buildInitialState, MASTER_CATEGORIES } from './demoData';
 import { generateId } from '../utils/id';
@@ -320,7 +326,249 @@ const migrateState = (state: DataState): DataState => {
     ).values()
   ).sort((a, b) => a.toLocaleLowerCase().localeCompare(b.toLocaleLowerCase()));
 
-  const { institutions: _institutions, accountGroups: _accountGroups, ...restState } = state as Record<string, unknown>;
+  const {
+    institutions: _institutions,
+    accountGroups: _accountGroups,
+    allocationRules: _legacyAllocationRules,
+    transactionAllocations: _legacyTransactionAllocations,
+    ...restState
+  } = state as Record<string, unknown>;
+
+  const sanitizeBase = (base: AllocationRuleBase | undefined | null): AllocationRuleBase => {
+    if (!base || typeof base !== 'object' || typeof (base as { type?: unknown }).type !== 'string') {
+      return { type: 'all-income', description: null };
+    }
+    switch (base.type) {
+      case 'categories':
+        return {
+          type: 'categories',
+          categoryIds: Array.isArray((base as { categoryIds?: unknown }).categoryIds)
+            ? ((base as { categoryIds?: unknown }).categoryIds as unknown[])
+                .map((value) => (typeof value === 'string' ? value : null))
+                .filter((value): value is string => Boolean(value))
+            : []
+        };
+      case 'sub-categories':
+        return {
+          type: 'sub-categories',
+          subCategoryIds: Array.isArray((base as { subCategoryIds?: unknown }).subCategoryIds)
+            ? ((base as { subCategoryIds?: unknown }).subCategoryIds as unknown[])
+                .map((value) => (typeof value === 'string' ? value : null))
+                .filter((value): value is string => Boolean(value))
+            : []
+        };
+      case 'payees':
+        return {
+          type: 'payees',
+          payeeIds: Array.isArray((base as { payeeIds?: unknown }).payeeIds)
+            ? ((base as { payeeIds?: unknown }).payeeIds as unknown[])
+                .map((value) => (typeof value === 'string' ? value : null))
+                .filter((value): value is string => Boolean(value))
+            : []
+        };
+      case 'accounts':
+        return {
+          type: 'accounts',
+          accountIds: Array.isArray((base as { accountIds?: unknown }).accountIds)
+            ? ((base as { accountIds?: unknown }).accountIds as unknown[])
+                .map((value) => (typeof value === 'string' ? value : null))
+                .filter((value): value is string => Boolean(value))
+            : []
+        };
+      case 'providers':
+        return {
+          type: 'providers',
+          providerNames: Array.isArray((base as { providerNames?: unknown }).providerNames)
+            ? ((base as { providerNames?: unknown }).providerNames as unknown[])
+                .map((value) => (typeof value === 'string' ? value : null))
+                .filter((value): value is string => Boolean(value))
+            : []
+        };
+      case 'all-income':
+      default:
+        return {
+          type: 'all-income',
+          description:
+            typeof (base as { description?: unknown }).description === 'string'
+              ? ((base as { description?: string }).description?.trim() || null)
+              : null
+        };
+    }
+  };
+
+  const sanitizePurpose = (
+    purpose: AllocationRulePurpose | undefined,
+    index: number
+  ): AllocationRulePurpose => {
+    const resolvedName = (purpose?.name ?? '').toString().trim() || `Purpose ${index + 1}`;
+    const rawPercentage =
+      typeof purpose?.percentage === 'number'
+        ? purpose.percentage
+        : typeof purpose?.percentage === 'string'
+        ? Number.parseFloat(purpose.percentage)
+        : Number.NaN;
+    const percentage = Number.isFinite(rawPercentage)
+      ? Number(rawPercentage)
+      : index === 0
+      ? 100
+      : 0;
+    const allowedTargets: AllocationRulePurpose['targetType'][] = ['account', 'collection', 'label'];
+    const targetType = allowedTargets.includes(purpose?.targetType as AllocationRulePurpose['targetType'])
+      ? (purpose?.targetType as AllocationRulePurpose['targetType'])
+      : 'label';
+    const targetId = typeof purpose?.targetId === 'string' ? purpose.targetId : null;
+    const targetLabel =
+      targetType === 'label'
+        ? typeof purpose?.targetLabel === 'string'
+          ? purpose.targetLabel.trim() || null
+          : null
+        : null;
+    return {
+      id: typeof purpose?.id === 'string' && purpose.id ? purpose.id : generateId('allocp'),
+      name: resolvedName,
+      percentage,
+      targetType,
+      targetId,
+      targetLabel
+    };
+  };
+
+  const sanitizeCondition = (condition: AllocationCondition | undefined): AllocationCondition | null => {
+    if (!condition || typeof condition !== 'object') {
+      return null;
+    }
+    switch (condition.type) {
+      case 'category':
+        return {
+          id: typeof condition.id === 'string' && condition.id ? condition.id : generateId('alloc-cond'),
+          type: 'category',
+          categoryId: typeof condition.categoryId === 'string' ? condition.categoryId : '',
+          subCategoryId:
+            typeof condition.subCategoryId === 'string' ? condition.subCategoryId : null
+        };
+      case 'payee':
+        return {
+          id: typeof condition.id === 'string' && condition.id ? condition.id : generateId('alloc-cond'),
+          type: 'payee',
+          operator: condition.operator === 'equals' ? 'equals' : 'contains',
+          value: typeof condition.value === 'string' ? condition.value : ''
+        };
+      case 'account':
+        return {
+          id: typeof condition.id === 'string' && condition.id ? condition.id : generateId('alloc-cond'),
+          type: 'account',
+          accountIds: Array.isArray(condition.accountIds)
+            ? condition.accountIds.filter((id): id is string => typeof id === 'string')
+            : []
+        };
+      case 'provider':
+        return {
+          id: typeof condition.id === 'string' && condition.id ? condition.id : generateId('alloc-cond'),
+          type: 'provider',
+          providers: Array.isArray(condition.providers)
+            ? condition.providers.filter((value): value is string => typeof value === 'string')
+            : []
+        };
+      case 'tag':
+        return {
+          id: typeof condition.id === 'string' && condition.id ? condition.id : generateId('alloc-cond'),
+          type: 'tag',
+          tagId: typeof condition.tagId === 'string' ? condition.tagId : ''
+        };
+      case 'flow':
+        return {
+          id: typeof condition.id === 'string' && condition.id ? condition.id : generateId('alloc-cond'),
+          type: 'flow',
+          flow: 'in'
+        };
+      default:
+        return null;
+    }
+  };
+
+  const rawAllocationRules = Array.isArray((state as { allocationRules?: AllocationRule[] }).allocationRules)
+    ? ((state as { allocationRules?: AllocationRule[] }).allocationRules as AllocationRule[])
+    : [];
+
+  const allocationRules: AllocationRule[] = rawAllocationRules.map((rule, index) => {
+    const filters = Array.isArray(rule.filters)
+      ? rule.filters
+          .map((condition) => sanitizeCondition(condition))
+          .filter((condition): condition is AllocationCondition => Boolean(condition))
+      : [];
+    const mappedPurposes = Array.isArray(rule.purposes)
+      ? rule.purposes.map((purpose, purposeIndex) => sanitizePurpose(purpose, purposeIndex))
+      : [];
+    const safePurposes = mappedPurposes.length ? mappedPurposes : [sanitizePurpose(undefined, 0)];
+    const tolerance = Number.isFinite(rule.tolerance) ? Number(rule.tolerance) : 0.5;
+    const priority = Number.isFinite(rule.priority) ? Number(rule.priority) : index * 10 + 100;
+    return {
+      id: typeof rule.id === 'string' && rule.id ? rule.id : generateId('alloc-rule'),
+      name: rule.name?.trim() || 'Unnamed allocation rule',
+      description: typeof rule.description === 'string' ? rule.description : null,
+      base: sanitizeBase(rule.base),
+      filters,
+      purposes: safePurposes,
+      enabled: Boolean(rule.enabled),
+      archived: Boolean(rule.archived),
+      priority,
+      allowOverwrite: Boolean(rule.allowOverwrite),
+      tolerance,
+      createdAt: rule.createdAt ?? new Date().toISOString(),
+      updatedAt: rule.updatedAt ?? rule.createdAt ?? new Date().toISOString()
+    } satisfies AllocationRule;
+  });
+
+  const rawAllocations = Array.isArray(
+    (state as { transactionAllocations?: TransactionAllocation[] }).transactionAllocations
+  )
+    ? ((state as { transactionAllocations?: TransactionAllocation[] }).transactionAllocations as TransactionAllocation[])
+    : [];
+
+  const transactionAllocations: TransactionAllocation[] = rawAllocations
+    .map((record) => {
+      if (!record || typeof record !== 'object') {
+        return null;
+      }
+      const nativeAmount = Number(record.nativeAmount);
+      const baseAmount = Number(record.baseAmount);
+      const percentage = Number(record.percentage);
+      if (!Number.isFinite(nativeAmount) || !Number.isFinite(baseAmount) || !Number.isFinite(percentage)) {
+        return null;
+      }
+      const nativeCurrency =
+        typeof record.nativeCurrency === 'string' && record.nativeCurrency
+          ? record.nativeCurrency
+          : mergedSettings.baseCurrency;
+      const baseCurrency =
+        typeof record.baseCurrency === 'string' && record.baseCurrency
+          ? record.baseCurrency
+          : mergedSettings.baseCurrency;
+      const appliedAt =
+        typeof record.appliedAt === 'string' && record.appliedAt
+          ? record.appliedAt
+          : new Date().toISOString();
+      const mode: TransactionAllocation['mode'] = record.mode === 'retroactive'
+        ? 'retroactive'
+        : record.mode === 'manual'
+        ? 'manual'
+        : 'auto';
+      return {
+        id: typeof record.id === 'string' && record.id ? record.id : generateId('alloc'),
+        transactionId:
+          typeof record.transactionId === 'string' ? record.transactionId : '',
+        ruleId: typeof record.ruleId === 'string' ? record.ruleId : '',
+        purposeId: typeof record.purposeId === 'string' ? record.purposeId : '',
+        percentage,
+        nativeAmount,
+        nativeCurrency,
+        baseAmount,
+        baseCurrency,
+        appliedAt,
+        mode
+      } satisfies TransactionAllocation;
+    })
+    .filter((record): record is TransactionAllocation => Boolean(record && record.transactionId && record.ruleId && record.purposeId));
 
   return {
     ...(restState as DataState),
@@ -328,6 +576,8 @@ const migrateState = (state: DataState): DataState => {
     budgets,
     budgetLines,
     transactions,
+    allocationRules,
+    transactionAllocations,
     importBatches: state.importBatches ?? [],
     rules: state.rules ?? [],
     ruleLogs: state.ruleLogs ?? [],
@@ -511,6 +761,17 @@ type DataContextValue = {
     mode: 'auto' | 'manual',
     source?: string
   ) => RuleRunLogEntry | null;
+  createAllocationRule: () => AllocationRule;
+  saveAllocationRule: (rule: AllocationRule) => void;
+  duplicateAllocationRule: (id: string) => AllocationRule | null;
+  renameAllocationRule: (id: string, name: string) => void;
+  setAllocationRuleEnabled: (id: string, enabled: boolean) => void;
+  setAllocationRulePriority: (id: string, priority: number) => void;
+  archiveAllocationRule: (id: string) => void;
+  restoreAllocationRule: (id: string) => void;
+  clearAllocationsForRule: (ruleId: string, transactionIds?: string[]) => void;
+  previewAllocationRun: (ruleId: string, filters: AllocationRunFilters) => AllocationRunPreview;
+  applyAllocationRun: (ruleId: string, filters: AllocationRunFilters) => AllocationRunResult;
 };
 
 const DataContext = createContext<DataContextValue | undefined>(undefined);
@@ -562,6 +823,34 @@ type WorkspaceMetadata = {
   splitIndex?: number | null;
   splitTotal?: number | null;
   rawFields?: Record<string, unknown> | null;
+};
+
+export type AllocationRunFilters = {
+  startDate?: string | null;
+  endDate?: string | null;
+  accountIds?: string[];
+  collectionIds?: string[];
+};
+
+export type AllocationPreviewPurpose = {
+  ruleId: string;
+  purposeId: string;
+  purposeName: string;
+  baseAmount: number;
+  nativeAmounts: Record<CurrencyCode, number>;
+};
+
+export type AllocationRunPreview = {
+  transactionCount: number;
+  allocationCount: number;
+  totalBaseAmount: number;
+  totalsByCurrency: Record<CurrencyCode, number>;
+  purposes: AllocationPreviewPurpose[];
+};
+
+export type AllocationRunResult = AllocationRunPreview & {
+  createdAllocations: number;
+  removedAllocations: number;
 };
 
 const readWorkspaceMetadata = (metadata: Transaction['metadata']): WorkspaceMetadata => {
@@ -838,6 +1127,344 @@ const conditionMatches = (
   }
 };
 
+const buildRuleContext = (state: DataState): RuleEvaluationContext => {
+  const accountsById = new Map(state.accounts.map((account) => [account.id, account]));
+  const payeesById = new Map(state.payees.map((payee) => [payee.id, payee]));
+  const payeesByName = new Map(
+    state.payees.map((payee) => [normalise(payee.name), payee])
+  );
+  const categoriesById = new Map(state.categories.map((category) => [category.id, category]));
+  const subCategoriesById = new Map(state.subCategories.map((sub) => [sub.id, sub]));
+  const masterById = new Map(state.masterCategories.map((master) => [master.id, master]));
+  return {
+    accountsById,
+    payeesById,
+    payeesByName,
+    categoriesById,
+    subCategoriesById,
+    masterById
+  };
+};
+
+type AllocationSplit = {
+  purpose: AllocationRulePurpose;
+  nativeAmount: number;
+  baseAmount: number;
+  nativeCurrency: CurrencyCode;
+};
+
+type AllocationEngineOptions = {
+  state: DataState;
+  rules: AllocationRule[];
+  transactions: Transaction[];
+  existingAllocations: TransactionAllocation[];
+  mode: TransactionAllocation['mode'];
+  respectExisting: boolean;
+  includeDisabled?: boolean;
+  dryRun?: boolean;
+};
+
+type AllocationEngineResult = {
+  created: TransactionAllocation[];
+  removedIds: string[];
+  affectedTransactions: Set<string>;
+  preview: AllocationRunPreview;
+};
+
+const buildRateContext = (settings: SettingsState) => {
+  const rateMap = new Map<string, number>();
+  settings.exchangeRates.forEach((entry) => {
+    if (!entry.currency) return;
+    const key = entry.currency.toUpperCase();
+    const rate = Number(entry.rateToBase);
+    rateMap.set(key, Number.isFinite(rate) && rate > 0 ? rate : 1);
+  });
+  const baseCurrency = settings.baseCurrency ?? 'GBP';
+  const baseKey = baseCurrency.toUpperCase();
+  if (!rateMap.has(baseKey)) {
+    rateMap.set(baseKey, 1);
+  }
+  return { rateMap, baseCurrency };
+};
+
+const convertToBaseAmount = (
+  amount: number,
+  currency: CurrencyCode,
+  rateMap: Map<string, number>
+) => {
+  const rate = rateMap.get(currency.toUpperCase()) ?? 1;
+  return amount * rate;
+};
+
+const matchesBaseScope = (
+  rule: AllocationRule,
+  transaction: Transaction,
+  account: Account | undefined
+) => {
+  switch (rule.base.type) {
+    case 'all-income':
+      return true;
+    case 'categories':
+      if (!rule.base.categoryIds.length) return false;
+      return transaction.categoryId
+        ? rule.base.categoryIds.includes(transaction.categoryId)
+        : false;
+    case 'sub-categories':
+      if (!rule.base.subCategoryIds.length) return false;
+      return transaction.subCategoryId
+        ? rule.base.subCategoryIds.includes(transaction.subCategoryId)
+        : false;
+    case 'payees':
+      if (!rule.base.payeeIds.length) return false;
+      return transaction.payeeId ? rule.base.payeeIds.includes(transaction.payeeId) : false;
+    case 'accounts':
+      if (!rule.base.accountIds.length) return false;
+      return rule.base.accountIds.includes(transaction.accountId);
+    case 'providers':
+      if (!rule.base.providerNames.length) return false;
+      if (!account) return false;
+      return rule.base.providerNames.some(
+        (provider) => normalise(provider) === normalise(account.provider)
+      );
+    default:
+      return true;
+  }
+};
+
+const matchesAllocationFilters = (
+  rule: AllocationRule,
+  transaction: Transaction,
+  context: RuleEvaluationContext
+) => {
+  if (!rule.filters.length) {
+    return true;
+  }
+  return rule.filters.every((filter) => conditionMatches(filter, transaction, context));
+};
+
+const buildAllocationSplits = (
+  rule: AllocationRule,
+  transaction: Transaction,
+  account: Account | undefined,
+  rateMap: Map<string, number>,
+  baseCurrency: CurrencyCode
+): AllocationSplit[] => {
+  if (!rule.purposes.length) {
+    return [];
+  }
+  const totalPercentage = rule.purposes.reduce((sum, purpose) => sum + purpose.percentage, 0);
+  if (totalPercentage === 0) {
+    return [];
+  }
+  const nativeCurrency =
+    transaction.nativeCurrency ?? transaction.currency ?? account?.currency ?? baseCurrency;
+  const nativeAmountRaw =
+    typeof transaction.nativeAmount === 'number'
+      ? transaction.nativeAmount
+      : transaction.amount;
+  if (!Number.isFinite(nativeAmountRaw)) {
+    return [];
+  }
+  const nativeAmount = Number(nativeAmountRaw);
+  return rule.purposes.map((purpose) => {
+    const nativeValue = (nativeAmount * purpose.percentage) / 100;
+    const baseValue = convertToBaseAmount(nativeValue, nativeCurrency, rateMap);
+    return {
+      purpose,
+      nativeAmount: nativeValue,
+      baseAmount: baseValue,
+      nativeCurrency
+    } satisfies AllocationSplit;
+  });
+};
+
+const runAllocationEngine = ({
+  state,
+  rules,
+  transactions,
+  existingAllocations,
+  mode,
+  respectExisting,
+  includeDisabled = false,
+  dryRun = false
+}: AllocationEngineOptions): AllocationEngineResult => {
+  if (!rules.length || !transactions.length) {
+    return {
+      created: [],
+      removedIds: [],
+      affectedTransactions: new Set<string>(),
+      preview: {
+        transactionCount: 0,
+        allocationCount: 0,
+        totalBaseAmount: 0,
+        totalsByCurrency: {},
+        purposes: []
+      }
+    };
+  }
+
+  const orderedRules = rules
+    .filter((rule) => !rule.archived)
+    .filter((rule) => includeDisabled || rule.enabled)
+    .sort((a, b) => {
+      if (a.priority !== b.priority) {
+        return a.priority - b.priority;
+      }
+      return a.name.localeCompare(b.name);
+    });
+
+  if (!orderedRules.length) {
+    return {
+      created: [],
+      removedIds: [],
+      affectedTransactions: new Set<string>(),
+      preview: {
+        transactionCount: 0,
+        allocationCount: 0,
+        totalBaseAmount: 0,
+        totalsByCurrency: {},
+        purposes: []
+      }
+    };
+  }
+
+  const context = buildRuleContext(state);
+  const { rateMap, baseCurrency } = buildRateContext(state.settings);
+
+  const existingByTransaction = new Map<string, TransactionAllocation[]>();
+  existingAllocations.forEach((record) => {
+    const list = existingByTransaction.get(record.transactionId) ?? [];
+    list.push(record);
+    existingByTransaction.set(record.transactionId, list);
+  });
+
+  const affectedTransactions = new Set<string>();
+  const removedIds = new Set<string>();
+  const created: TransactionAllocation[] = [];
+  const purposeTotals = new Map<
+    string,
+    {
+      ruleId: string;
+      purposeId: string;
+      purposeName: string;
+      baseAmount: number;
+      nativeAmounts: Map<CurrencyCode, number>;
+    }
+  >();
+  const totalsByCurrency = new Map<CurrencyCode, number>();
+  let allocationCount = 0;
+  const appliedAt = new Date().toISOString();
+
+  transactions.forEach((transaction) => {
+    if (resolveFlowType(transaction, context) !== 'in') {
+      return;
+    }
+    const account = context.accountsById.get(transaction.accountId);
+
+    for (const rule of orderedRules) {
+      const current = existingByTransaction.get(transaction.id) ?? [];
+      const existingForRule = current.filter((record) => record.ruleId === rule.id);
+      const existingOtherRule = current.filter((record) => record.ruleId !== rule.id);
+
+      if (
+        current.length &&
+        existingOtherRule.length &&
+        existingForRule.length === 0 &&
+        respectExisting &&
+        !rule.allowOverwrite
+      ) {
+        continue;
+      }
+
+      if (!matchesBaseScope(rule, transaction, account)) {
+        continue;
+      }
+
+      if (!matchesAllocationFilters(rule, transaction, context)) {
+        continue;
+      }
+
+      const splits = buildAllocationSplits(rule, transaction, account, rateMap, baseCurrency);
+      if (!splits.length) {
+        continue;
+      }
+
+      affectedTransactions.add(transaction.id);
+      allocationCount += splits.length;
+
+      splits.forEach((split) => {
+        const key = `${rule.id}:${split.purpose.id}`;
+        const entry = purposeTotals.get(key) ?? {
+          ruleId: rule.id,
+          purposeId: split.purpose.id,
+          purposeName: split.purpose.name,
+          baseAmount: 0,
+          nativeAmounts: new Map<CurrencyCode, number>()
+        };
+        entry.baseAmount += split.baseAmount;
+        entry.nativeAmounts.set(
+          split.nativeCurrency,
+          (entry.nativeAmounts.get(split.nativeCurrency) ?? 0) + split.nativeAmount
+        );
+        purposeTotals.set(key, entry);
+        totalsByCurrency.set(
+          split.nativeCurrency,
+          (totalsByCurrency.get(split.nativeCurrency) ?? 0) + split.nativeAmount
+        );
+      });
+
+      if (!dryRun) {
+        const toRemove = rule.allowOverwrite ? current : existingForRule;
+        if (toRemove.length) {
+          toRemove.forEach((record) => removedIds.add(record.id));
+        }
+        const remaining = current.filter((record) => !removedIds.has(record.id));
+        const createdForTransaction = splits.map((split) => ({
+          id: generateId('alloc'),
+          transactionId: transaction.id,
+          ruleId: rule.id,
+          purposeId: split.purpose.id,
+          percentage: split.purpose.percentage,
+          nativeAmount: split.nativeAmount,
+          nativeCurrency: split.nativeCurrency,
+          baseAmount: split.baseAmount,
+          baseCurrency,
+          appliedAt,
+          mode
+        } satisfies TransactionAllocation));
+        existingByTransaction.set(transaction.id, [...remaining, ...createdForTransaction]);
+        created.push(...createdForTransaction);
+      }
+
+      break;
+    }
+  });
+
+  const preview: AllocationRunPreview = {
+    transactionCount: affectedTransactions.size,
+    allocationCount,
+    totalBaseAmount: Array.from(purposeTotals.values()).reduce(
+      (sum, entry) => sum + entry.baseAmount,
+      0
+    ),
+    totalsByCurrency: Object.fromEntries(totalsByCurrency.entries()),
+    purposes: Array.from(purposeTotals.values()).map((entry) => ({
+      ruleId: entry.ruleId,
+      purposeId: entry.purposeId,
+      purposeName: entry.purposeName,
+      baseAmount: entry.baseAmount,
+      nativeAmounts: Object.fromEntries(entry.nativeAmounts.entries())
+    }))
+  };
+
+  return {
+    created,
+    removedIds: Array.from(removedIds),
+    affectedTransactions,
+    preview
+  };
+};
+
 type ActionOutcome = {
   applied: boolean;
   changed: boolean;
@@ -972,25 +1599,7 @@ const executeRules = (
     }
   });
 
-  const accountsById = new Map(state.accounts.map((account) => [account.id, account]));
-  const payeesById = new Map(state.payees.map((payee) => [payee.id, payee]));
-  const payeesByName = new Map(
-    state.payees.map((payee) => [normalise(payee.name), payee])
-  );
-  const categoriesById = new Map(state.categories.map((category) => [category.id, category]));
-  const subCategoriesById = new Map(
-    state.subCategories.map((sub) => [sub.id, sub])
-  );
-  const masterById = new Map(state.masterCategories.map((master) => [master.id, master]));
-
-  const context: RuleEvaluationContext = {
-    accountsById,
-    payeesById,
-    payeesByName,
-    categoriesById,
-    subCategoriesById,
-    masterById
-  };
+  const context = buildRuleContext(state);
 
   const fieldLocks = new Map<string, Set<RuleActionField>>();
   const pendingPayees: Payee[] = [];
@@ -2497,6 +3106,396 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     return logEntry;
   };
 
+  const buildEmptyAllocationPreview = (): AllocationRunPreview => ({
+    transactionCount: 0,
+    allocationCount: 0,
+    totalBaseAmount: 0,
+    totalsByCurrency: {},
+    purposes: []
+  });
+
+  const getTransactionsForAllocationRun = (
+    sourceState: DataState,
+    filters: AllocationRunFilters
+  ): Transaction[] => {
+    const startTime = filters.startDate ? new Date(filters.startDate).getTime() : Number.NaN;
+    const endTime = filters.endDate ? new Date(filters.endDate).getTime() : Number.NaN;
+    const hasStart = !Number.isNaN(startTime);
+    const hasEnd = !Number.isNaN(endTime);
+    const accountIds = new Set((filters.accountIds ?? []).filter(Boolean));
+    const collectionIds = new Set((filters.collectionIds ?? []).filter(Boolean));
+    const collectionAccountIds = new Set<string>();
+    if (collectionIds.size) {
+      sourceState.accounts.forEach((account) => {
+        if (account.collectionIds.some((id) => collectionIds.has(id))) {
+          collectionAccountIds.add(account.id);
+        }
+      });
+    }
+    const filterByAccount = accountIds.size > 0;
+    const filterByCollection = collectionIds.size > 0;
+    return sourceState.transactions.filter((transaction) => {
+      if (filterByAccount && !accountIds.has(transaction.accountId)) {
+        return false;
+      }
+      if (filterByCollection && !collectionAccountIds.has(transaction.accountId)) {
+        return false;
+      }
+      if (!hasStart && !hasEnd) {
+        return true;
+      }
+      const timestamp = new Date(transaction.date).getTime();
+      if (Number.isNaN(timestamp)) {
+        return false;
+      }
+      if (hasStart && timestamp < startTime) {
+        return false;
+      }
+      if (hasEnd && timestamp > endTime) {
+        return false;
+      }
+      return true;
+    });
+  };
+
+  const createAllocationRule = (): AllocationRule => {
+    const timestamp = new Date().toISOString();
+    const priorities = state.allocationRules.map((rule) => rule.priority);
+    const nextPriority = priorities.length ? Math.max(...priorities) + 10 : 100;
+    const rule: AllocationRule = {
+      id: generateId('alloc-rule'),
+      name: 'New allocation rule',
+      description: null,
+      base: { type: 'all-income', description: null },
+      filters: [],
+      purposes: [
+        {
+          id: generateId('allocp'),
+          name: 'General allocation',
+          percentage: 100,
+          targetType: 'label',
+          targetId: null,
+          targetLabel: 'General'
+        }
+      ],
+      enabled: true,
+      archived: false,
+      priority: nextPriority,
+      allowOverwrite: false,
+      tolerance: 0.5,
+      createdAt: timestamp,
+      updatedAt: timestamp
+    };
+    updateState((prev) => ({
+      ...prev,
+      allocationRules: [...prev.allocationRules, rule]
+    }));
+    logInfo('Allocation rule created', { id: rule.id });
+    return rule;
+  };
+
+  const normaliseRuleBase = (base: AllocationRuleBase): AllocationRuleBase => {
+    const normaliseIds = (values: string[] | undefined) =>
+      Array.from(new Set((values ?? []).filter((value) => typeof value === 'string' && value.trim())));
+    switch (base.type) {
+      case 'categories':
+        return { type: 'categories', categoryIds: normaliseIds(base.categoryIds) };
+      case 'sub-categories':
+        return { type: 'sub-categories', subCategoryIds: normaliseIds(base.subCategoryIds) };
+      case 'payees':
+        return { type: 'payees', payeeIds: normaliseIds(base.payeeIds) };
+      case 'accounts':
+        return { type: 'accounts', accountIds: normaliseIds(base.accountIds) };
+      case 'providers':
+        return { type: 'providers', providerNames: normaliseIds(base.providerNames) };
+      case 'all-income':
+      default:
+        return {
+          type: 'all-income',
+          description:
+            base.type === 'all-income' && typeof base.description === 'string'
+              ? base.description.trim() || null
+              : null
+        };
+    }
+  };
+
+  const saveAllocationRule = (rule: AllocationRule) => {
+    const timestamp = new Date().toISOString();
+    const normalisedPurposes: AllocationRulePurpose[] = (rule.purposes ?? []).length
+      ? rule.purposes.map((purpose, index) => {
+          const nextType: AllocationPurposeTargetType =
+            purpose.targetType === 'account' ||
+            purpose.targetType === 'collection' ||
+            purpose.targetType === 'label'
+              ? purpose.targetType
+              : 'label';
+          return {
+            id: purpose.id && purpose.id.trim() ? purpose.id : generateId('allocp'),
+            name: purpose.name?.trim() || `Purpose ${index + 1}`,
+            percentage: Number.isFinite(purpose.percentage)
+              ? Number(purpose.percentage)
+              : index === 0
+              ? 100
+              : 0,
+            targetType: nextType,
+            targetId:
+              nextType === 'account' || nextType === 'collection'
+                ? purpose.targetId ?? null
+                : null,
+            targetLabel: nextType === 'label' ? purpose.targetLabel?.trim() || null : null
+          };
+        })
+      : [
+          {
+            id: generateId('allocp'),
+            name: 'General allocation',
+            percentage: 100,
+            targetType: 'label',
+            targetId: null,
+            targetLabel: 'General'
+          }
+        ];
+
+    const normalisedFilters = (rule.filters ?? []).map((filter) => {
+      const id = filter.id && filter.id.trim() ? filter.id : generateId('alloc-cond');
+      if (filter.type === 'flow') {
+        return { ...filter, id, flow: 'in' } as AllocationCondition;
+      }
+      return { ...filter, id } as AllocationCondition;
+    });
+
+    const tolerance = Number.isFinite(rule.tolerance) ? Math.max(Number(rule.tolerance), 0) : 0.5;
+
+    const nextRule: AllocationRule = {
+      ...rule,
+      name: rule.name.trim() || 'Unnamed allocation rule',
+      description: rule.description?.trim() || null,
+      base: normaliseRuleBase(rule.base),
+      filters: normalisedFilters,
+      purposes: normalisedPurposes,
+      allowOverwrite: Boolean(rule.allowOverwrite),
+      tolerance,
+      updatedAt: timestamp
+    };
+
+    updateState((prev) => {
+      const exists = prev.allocationRules.some((entry) => entry.id === nextRule.id);
+      const allocationRules = exists
+        ? prev.allocationRules.map((entry) => (entry.id === nextRule.id ? nextRule : entry))
+        : [...prev.allocationRules, nextRule];
+      return { ...prev, allocationRules };
+    });
+    logInfo('Allocation rule saved', { id: nextRule.id });
+  };
+
+  const duplicateAllocationRule = (id: string): AllocationRule | null => {
+    const original = state.allocationRules.find((rule) => rule.id === id);
+    if (!original) {
+      return null;
+    }
+    const timestamp = new Date().toISOString();
+    const priorities = state.allocationRules.map((rule) => rule.priority);
+    const nextPriority = priorities.length ? Math.max(...priorities) + 10 : original.priority + 10;
+    const clone: AllocationRule = {
+      ...original,
+      id: generateId('alloc-rule'),
+      name: `${original.name} (Copy)`,
+      enabled: false,
+      archived: false,
+      priority: nextPriority,
+      filters: original.filters.map((filter) => ({
+        ...filter,
+        id: generateId('alloc-cond')
+      })),
+      purposes: original.purposes.map((purpose, index) => ({
+        ...purpose,
+        id: generateId('allocp'),
+        name: purpose.name?.trim() || `Purpose ${index + 1}`
+      })),
+      createdAt: timestamp,
+      updatedAt: timestamp
+    };
+    updateState((prev) => ({
+      ...prev,
+      allocationRules: [...prev.allocationRules, clone]
+    }));
+    logInfo('Allocation rule duplicated', { id: clone.id, sourceId: id });
+    return clone;
+  };
+
+  const renameAllocationRule = (id: string, name: string) => {
+    const trimmed = name.trim();
+    updateState((prev) => ({
+      ...prev,
+      allocationRules: prev.allocationRules.map((rule) =>
+        rule.id === id
+          ? {
+              ...rule,
+              name: trimmed || rule.name,
+              updatedAt: new Date().toISOString()
+            }
+          : rule
+      )
+    }));
+    logInfo('Allocation rule renamed', { id });
+  };
+
+  const setAllocationRuleEnabled = (id: string, enabled: boolean) => {
+    updateState((prev) => ({
+      ...prev,
+      allocationRules: prev.allocationRules.map((rule) =>
+        rule.id === id
+          ? { ...rule, enabled, updatedAt: new Date().toISOString() }
+          : rule
+      )
+    }));
+    logInfo('Allocation rule toggled', { id, enabled });
+  };
+
+  const setAllocationRulePriority = (id: string, priority: number) => {
+    const numeric = Number.isFinite(priority) ? Number(priority) : priority;
+    updateState((prev) => ({
+      ...prev,
+      allocationRules: prev.allocationRules.map((rule) =>
+        rule.id === id
+          ? { ...rule, priority: numeric, updatedAt: new Date().toISOString() }
+          : rule
+      )
+    }));
+    logInfo('Allocation rule priority updated', { id, priority: numeric });
+  };
+
+  const archiveAllocationRule = (id: string) => {
+    updateState((prev) => ({
+      ...prev,
+      allocationRules: prev.allocationRules.map((rule) =>
+        rule.id === id
+          ? { ...rule, archived: true, enabled: false, updatedAt: new Date().toISOString() }
+          : rule
+      )
+    }));
+    logInfo('Allocation rule archived', { id });
+  };
+
+  const restoreAllocationRule = (id: string) => {
+    updateState((prev) => ({
+      ...prev,
+      allocationRules: prev.allocationRules.map((rule) =>
+        rule.id === id
+          ? { ...rule, archived: false, enabled: true, updatedAt: new Date().toISOString() }
+          : rule
+      )
+    }));
+    logInfo('Allocation rule restored', { id });
+  };
+
+  const clearAllocationsForRule = (ruleId: string, transactionIds?: string[]) => {
+    const targetIds = transactionIds ? new Set(transactionIds) : null;
+    updateState((prev) => ({
+      ...prev,
+      transactionAllocations: prev.transactionAllocations.filter((record) => {
+        if (record.ruleId !== ruleId) {
+          return true;
+        }
+        if (targetIds && !targetIds.has(record.transactionId)) {
+          return true;
+        }
+        return false;
+      })
+    }));
+    logInfo('Allocation records cleared', {
+      ruleId,
+      transactionIds: transactionIds?.length ?? undefined
+    });
+  };
+
+  const previewAllocationRun = (
+    ruleId: string,
+    filters: AllocationRunFilters
+  ): AllocationRunPreview => {
+    const rule = state.allocationRules.find((entry) => entry.id === ruleId);
+    if (!rule) {
+      return buildEmptyAllocationPreview();
+    }
+    const transactions = getTransactionsForAllocationRun(state, filters);
+    if (!transactions.length) {
+      return buildEmptyAllocationPreview();
+    }
+    const engine = runAllocationEngine({
+      state,
+      rules: [rule],
+      transactions,
+      existingAllocations: state.transactionAllocations,
+      mode: 'manual',
+      respectExisting: true,
+      includeDisabled: true,
+      dryRun: true
+    });
+    return engine.preview;
+  };
+
+  const applyAllocationRun = (
+    ruleId: string,
+    filters: AllocationRunFilters
+  ): AllocationRunResult => {
+    let outcome: AllocationRunResult = {
+      ...buildEmptyAllocationPreview(),
+      createdAllocations: 0,
+      removedAllocations: 0
+    };
+
+    updateState((prev) => {
+      const rule = prev.allocationRules.find((entry) => entry.id === ruleId);
+      if (!rule) {
+        return prev;
+      }
+      const transactions = getTransactionsForAllocationRun(prev, filters);
+      if (!transactions.length) {
+        outcome = {
+          ...buildEmptyAllocationPreview(),
+          createdAllocations: 0,
+          removedAllocations: 0
+        };
+        return prev;
+      }
+      const engine = runAllocationEngine({
+        state: prev,
+        rules: [rule],
+        transactions,
+        existingAllocations: prev.transactionAllocations,
+        mode: 'retroactive',
+        respectExisting: true,
+        includeDisabled: true,
+        dryRun: false
+      });
+      const retained = prev.transactionAllocations.filter(
+        (record) => !engine.removedIds.includes(record.id)
+      );
+      const timestamp = new Date().toISOString();
+      outcome = {
+        ...engine.preview,
+        createdAllocations: engine.created.length,
+        removedAllocations: engine.removedIds.length
+      };
+      return {
+        ...prev,
+        transactionAllocations: [...retained, ...engine.created],
+        allocationRules: prev.allocationRules.map((entry) =>
+          entry.id === ruleId ? { ...entry, updatedAt: timestamp } : entry
+        )
+      };
+    });
+
+    logInfo('Allocation run applied', {
+      ruleId,
+      created: outcome.createdAllocations,
+      removed: outcome.removedAllocations,
+      transactions: outcome.transactionCount
+    });
+    return outcome;
+  };
+
   const addTransaction = (txn: Omit<Transaction, 'id'>): Transaction => {
     const transaction: Transaction = {
       ...txn,
@@ -2504,8 +3503,32 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       flowOverride: txn.flowOverride ?? null,
       isDemo: txn.isDemo ?? false
     };
-    updateState((prev) => ({ ...prev, transactions: [transaction, ...prev.transactions] }));
-    logInfo('Transaction created', { id: transaction.id });
+    let appliedAllocations = 0;
+    updateState((prev) => {
+      const engine = runAllocationEngine({
+        state: prev,
+        rules: prev.allocationRules,
+        transactions: [transaction],
+        existingAllocations: prev.transactionAllocations,
+        mode: 'auto',
+        respectExisting: true,
+        includeDisabled: false,
+        dryRun: false
+      });
+      appliedAllocations = engine.created.length;
+      const retained = prev.transactionAllocations.filter(
+        (record) => !engine.removedIds.includes(record.id)
+      );
+      return {
+        ...prev,
+        transactions: [transaction, ...prev.transactions],
+        transactionAllocations: [...retained, ...engine.created]
+      };
+    });
+    logInfo('Transaction created', {
+      id: transaction.id,
+      allocationsApplied: appliedAllocations
+    });
     return transaction;
   };
 
@@ -2515,9 +3538,15 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     options?: TransactionUpdateOptions
   ) => {
     const user = options?.user ?? 'Manual edit';
-    updateState((prev) => ({
-      ...prev,
-      transactions: prev.transactions.map((existing) => {
+    let appliedAllocations = 0;
+    let removedAllocations = 0;
+    updateState((prev) => {
+      const context = buildRuleContext(prev);
+      const baseAllocations = prev.transactionAllocations.filter(
+        (record) => record.transactionId !== id
+      );
+      let updatedTransaction: Transaction | null = null;
+      const nextTransactions = prev.transactions.map((existing) => {
         if (existing.id !== id) {
           return existing;
         }
@@ -2526,17 +3555,59 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
           typeof entriesSource === 'function'
             ? entriesSource(existing)
             : entriesSource ?? [];
-        const next: Transaction = { ...existing, ...txn };
+        let next: Transaction = { ...existing, ...txn };
         if (options?.manual) {
           const fields = resolvedEntries.length
             ? resolvedEntries.map((entry) => entry.field)
             : Object.keys(txn);
-          return applyManualMetadata(next, fields, user, resolvedEntries);
+          next = applyManualMetadata(next, fields, user, resolvedEntries);
         }
+        updatedTransaction = next;
         return next;
-      })
-    }));
-    logInfo('Transaction updated', { id });
+      });
+
+      if (!updatedTransaction) {
+        return { ...prev, transactions: nextTransactions };
+      }
+
+      const flow = resolveFlowType(updatedTransaction, context);
+      if (flow !== 'in') {
+        removedAllocations = prev.transactionAllocations.filter(
+          (record) => record.transactionId === id
+        ).length;
+        return {
+          ...prev,
+          transactions: nextTransactions,
+          transactionAllocations: baseAllocations
+        };
+      }
+
+      const engine = runAllocationEngine({
+        state: prev,
+        rules: prev.allocationRules,
+        transactions: [updatedTransaction],
+        existingAllocations: baseAllocations,
+        mode: 'auto',
+        respectExisting: true,
+        includeDisabled: false,
+        dryRun: false
+      });
+      appliedAllocations = engine.created.length;
+      removedAllocations = engine.removedIds.length;
+      const retained = baseAllocations.filter(
+        (record) => !engine.removedIds.includes(record.id)
+      );
+      return {
+        ...prev,
+        transactions: nextTransactions,
+        transactionAllocations: [...retained, ...engine.created]
+      };
+    });
+    logInfo('Transaction updated', {
+      id,
+      allocationsApplied: appliedAllocations,
+      allocationsRemoved: removedAllocations
+    });
   };
 
   const bulkUpdateTransactions = (
@@ -2549,9 +3620,15 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     }
     const idSet = new Set(ids);
     const user = options?.user ?? 'Bulk edit';
-    updateState((prev) => ({
-      ...prev,
-      transactions: prev.transactions.map((existing) => {
+    let appliedAllocations = 0;
+    let removedAllocations = 0;
+    updateState((prev) => {
+      const context = buildRuleContext(prev);
+      const baseAllocations = prev.transactionAllocations.filter(
+        (record) => !idSet.has(record.transactionId)
+      );
+      const updatedTransactions: Transaction[] = [];
+      const nextTransactions = prev.transactions.map((existing) => {
         if (!idSet.has(existing.id)) {
           return existing;
         }
@@ -2560,17 +3637,62 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
           typeof entriesSource === 'function'
             ? entriesSource(existing)
             : entriesSource ?? [];
-        const next: Transaction = { ...existing, ...txn };
+        let next: Transaction = { ...existing, ...txn };
         if (options?.manual) {
           const fields = resolvedEntries.length
             ? resolvedEntries.map((entry) => entry.field)
             : Object.keys(txn);
-          return applyManualMetadata(next, fields, user, resolvedEntries);
+          next = applyManualMetadata(next, fields, user, resolvedEntries);
         }
+        updatedTransactions.push(next);
         return next;
-      })
-    }));
-    logInfo('Transactions bulk updated', { count: ids.length });
+      });
+
+      if (updatedTransactions.length === 0) {
+        return { ...prev, transactions: nextTransactions };
+      }
+
+      removedAllocations = prev.transactionAllocations.filter((record) =>
+        idSet.has(record.transactionId)
+      ).length;
+
+      const inflowTransactions = updatedTransactions.filter(
+        (transaction) => resolveFlowType(transaction, context) === 'in'
+      );
+
+      if (!inflowTransactions.length) {
+        return {
+          ...prev,
+          transactions: nextTransactions,
+          transactionAllocations: baseAllocations
+        };
+      }
+
+      const engine = runAllocationEngine({
+        state: prev,
+        rules: prev.allocationRules,
+        transactions: inflowTransactions,
+        existingAllocations: baseAllocations,
+        mode: 'auto',
+        respectExisting: true,
+        includeDisabled: false,
+        dryRun: false
+      });
+      appliedAllocations = engine.created.length;
+      const retained = baseAllocations.filter(
+        (record) => !engine.removedIds.includes(record.id)
+      );
+      return {
+        ...prev,
+        transactions: nextTransactions,
+        transactionAllocations: [...retained, ...engine.created]
+      };
+    });
+    logInfo('Transactions bulk updated', {
+      count: ids.length,
+      allocationsApplied: appliedAllocations,
+      allocationsRemoved: removedAllocations
+    });
   };
 
   const splitTransaction = (
@@ -2611,6 +3733,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       const before = prev.transactions.slice(0, index);
       const after = prev.transactions.slice(index + 1);
       const workspaceSource = readWorkspaceMetadata(original.metadata);
+      const context = buildRuleContext(prev);
 
       const manualFieldsBase: string[] = ['split'];
 
@@ -2698,11 +3821,46 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         return applyManualMetadata(child, manualFields, user, auditEntries);
       });
 
-      logInfo('Transaction split', { id, count: createdTransactions.length });
+      const inflowTransactions = createdTransactions.filter(
+        (transaction) => resolveFlowType(transaction, context) === 'in'
+      );
+      const baseAllocations = prev.transactionAllocations.filter(
+        (record) => record.transactionId !== id
+      );
+      const allocationsRemoved = prev.transactionAllocations.length - baseAllocations.length;
+      const engine = inflowTransactions.length
+        ? runAllocationEngine({
+            state: prev,
+            rules: prev.allocationRules,
+            transactions: inflowTransactions,
+            existingAllocations: baseAllocations,
+            mode: 'manual',
+            respectExisting: true,
+            includeDisabled: false,
+            dryRun: false
+          })
+        : {
+            created: [],
+            removedIds: [],
+            affectedTransactions: new Set<string>(),
+            preview: buildEmptyAllocationPreview()
+          };
+      const allocationsApplied = engine.created.length;
+      const retained = baseAllocations.filter(
+        (record) => !engine.removedIds.includes(record.id)
+      );
+
+      logInfo('Transaction split', {
+        id,
+        count: createdTransactions.length,
+        allocationsApplied,
+        allocationsRemoved
+      });
 
       return {
         ...prev,
-        transactions: [...before, ...createdTransactions, ...after]
+        transactions: [...before, ...createdTransactions, ...after],
+        transactionAllocations: [...retained, ...engine.created]
       };
     });
 
@@ -3033,7 +4191,18 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       archiveRule,
       restoreRule,
       previewRuleRun,
-      runRules
+      runRules,
+      createAllocationRule,
+      saveAllocationRule,
+      duplicateAllocationRule,
+      renameAllocationRule,
+      setAllocationRuleEnabled,
+      setAllocationRulePriority,
+      archiveAllocationRule,
+      restoreAllocationRule,
+      clearAllocationsForRule,
+      previewAllocationRun,
+      applyAllocationRun
     }),
     [state]
   );

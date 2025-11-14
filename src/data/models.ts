@@ -113,6 +113,33 @@ export type Tag = {
   isDemo: boolean;
 };
 
+export type AllocationPurposeTargetType = 'account' | 'collection' | 'label';
+
+export type AllocationRulePurpose = {
+  id: string;
+  name: string;
+  percentage: number;
+  targetType: AllocationPurposeTargetType;
+  targetId?: string | null;
+  targetLabel?: string | null;
+};
+
+export type AllocationRuleBaseType =
+  | 'all-income'
+  | 'categories'
+  | 'sub-categories'
+  | 'payees'
+  | 'accounts'
+  | 'providers';
+
+export type AllocationRuleBase =
+  | { type: 'all-income'; description?: string | null }
+  | { type: 'categories'; categoryIds: string[] }
+  | { type: 'sub-categories'; subCategoryIds: string[] }
+  | { type: 'payees'; payeeIds: string[] }
+  | { type: 'accounts'; accountIds: string[] }
+  | { type: 'providers'; providerNames: string[] };
+
 export type Transaction = {
   id: string;
   accountId: string;
@@ -134,6 +161,44 @@ export type Transaction = {
   importBatchId?: string | null;
   metadata?: Record<string, unknown>;
   isDemo: boolean;
+};
+
+export type AllocationCondition =
+  | CategoryEqualsCondition
+  | PayeeCondition
+  | AccountCondition
+  | ProviderCondition
+  | TagCondition
+  | FlowCondition;
+
+export type AllocationRule = {
+  id: string;
+  name: string;
+  description?: string | null;
+  base: AllocationRuleBase;
+  filters: AllocationCondition[];
+  purposes: AllocationRulePurpose[];
+  enabled: boolean;
+  archived: boolean;
+  priority: number;
+  allowOverwrite: boolean;
+  tolerance: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type TransactionAllocation = {
+  id: string;
+  transactionId: string;
+  ruleId: string;
+  purposeId: string;
+  percentage: number;
+  nativeAmount: number;
+  nativeCurrency: CurrencyCode;
+  baseAmount: number;
+  baseCurrency: CurrencyCode;
+  appliedAt: string;
+  mode: 'auto' | 'retroactive' | 'manual';
 };
 
 export type ImportSignConvention = 'positive-credit' | 'explicit-columns';
@@ -235,6 +300,8 @@ export type DataState = {
   payees: Payee[];
   tags: Tag[];
   transactions: Transaction[];
+  allocationRules: AllocationRule[];
+  transactionAllocations: TransactionAllocation[];
   importBatches: ImportBatch[];
   rules: Rule[];
   ruleLogs: RuleRunLogEntry[];

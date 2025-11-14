@@ -8,6 +8,34 @@ const Help = () => (
       description="Guides for managing accounts, budgets, providers, collections, categories, and payees."
     />
     <div className="content-card">
+      <h3>Income Allocation Rules</h3>
+      <p className="muted-text">
+        Use the Allocations page to define how inflows are analytically split across purposes
+        such as rainy day funds, retirement, investments, spending, and holidays. Each rule
+        starts with a base scope (all income, selected categories or sub-categories, payees,
+        accounts, or providers), optional filters for payees, accounts, providers, collections,
+        and tags, and a list of purposes whose percentages must total 100% within the configured
+        tolerance. Targets can be collections, accounts, or simple label-only buckets so you can
+        keep everything virtual.
+      </p>
+      <div className="help-diagram">
+        <strong>Rule builder quick steps</strong>
+        <pre>{`1. Allocations → New allocation rule
+2. Pick base scope and optional filters (inflows only)
+3. Add purposes, set percentages, choose targets
+4. Set priority and enable overwrite if this rule should supersede earlier matches`}</pre>
+        <Tooltip label="Percentages must resolve to 100% within the tolerance before saving. Rules execute from lowest to highest priority." />
+      </div>
+      <div className="help-diagram">
+        <strong>Review & reporting</strong>
+        <pre>{`Allocations page → summary filters for date range, accounts, collections
+Budgets → income lines and sub-lines show allocated coverage per purpose
+Reports → Allocation summary compares totals to the selected budget plan
+Retro runs → preview impact before applying analytics to historical inflows`}</pre>
+        <Tooltip label="Retroactive runs never alter balances—they only create or refresh analytical allocation entries for matched inflows." />
+      </div>
+    </div>
+    <div className="content-card">
       <h3>Budgets & period navigation</h3>
       <p className="muted-text">
         Budgets are made up of category lines and optional sub-lines. Each line stores a planned amount in the

@@ -1,3 +1,27 @@
+## Income Allocation Rules
+
+The Allocations workspace lets you describe how inflows should be virtually split across
+purposes such as rainy day, retirement, investments, spending, and holidays. Create a rule
+from **Allocations → New allocation rule**, choose a base scope (all income, specific
+categories or sub-categories, selected payees, accounts, or providers), add any filters for
+payees, accounts, providers, collections, or tags, and then define the named purposes and
+percentages for the split. Percentages must total 100% within the rule tolerance before a rule
+can be saved. Each purpose can point to a target collection, account, or remain a virtual
+bucket.
+
+Enabled rules execute in ascending priority and stop after the first match unless a later rule
+is marked to overwrite allocations. When new inflows arrive or you run a retroactive allocation
+over a date range, matching rules create analytical allocation records without altering account
+balances. Allocations respect native currency amounts and store base-currency equivalents for
+reporting.
+
+Use the Allocations page to edit rules, preview retroactive runs, and review allocation totals
+across any date range, accounts, or collections. The Budgets editor now highlights how income
+lines and sub-lines are covered by allocations during the active period, and the Reports module
+includes an Allocation summary card that compares allocated income to your selected budget plan
+while surfacing the top purposes. The existing `python3 launch.py` one-command launcher continues
+to start the app with no additional setup.
+
 # SleekFinance
 
 ## Budgeting upgrades

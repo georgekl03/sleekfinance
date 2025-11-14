@@ -14,6 +14,7 @@ const navItems = [
   { to: '/payees', label: 'Payees' },
   { to: '/budgets', label: 'Budgets' },
   { to: '/rules', label: 'Rules' },
+  { to: '/allocations', label: 'Allocations' },
   { to: '/reports', label: 'Reports' },
   { to: '/investments', label: 'Investments' },
   { to: '/imports', label: 'Imports' },
