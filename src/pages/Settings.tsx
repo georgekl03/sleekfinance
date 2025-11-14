@@ -215,7 +215,10 @@ const Settings = () => {
                 id="default-date-format"
                 value={defaultsDraft.dateFormat}
                 onChange={(event) =>
-                  setDefaultsDraft((prev) => ({ ...prev, dateFormat: event.target.value }))
+                  setDefaultsDraft((prev) => ({
+                    ...prev,
+                    dateFormat: event.target.value as ImportFormatOptions['dateFormat']
+                  }))
                 }
               >
                 {dateFormatOptions.map((option) => (

@@ -1,3 +1,26 @@
+## Importing v2
+
+SleekFinance’s import wizard now handles bank statements in **CSV, OFX, QIF, and MT940** formats without
+changing any of the downstream steps you rely on—field mapping, preview, duplicate handling, FX options,
+rules execution, and batch logging all behave exactly as they do for CSV uploads. Files are detected by
+extension and, where possible, by inspecting their contents so the correct parser runs automatically. Each
+parser normalises transactions into the same column set (date, amount, description, payee/counterparty,
+currency, external IDs, metadata) while preserving useful raw details for the transaction inspector.
+
+- **Mapping profiles by provider & format** – Profiles now store the statement type and any provider
+  fingerprint so OFX/QIF/MT940 layouts can auto-map just like CSV headers. Matching profiles surface a
+  banner with the applied mapping and let you override it on demand.
+- **Preview, duplicates & FX parity** – Normalised rows flow through duplicate detection, FX workflows,
+  and conflict resolution exactly the same as CSV imports. Multi-currency files respect the existing
+  conversion modes and flag rows that still need FX before import.
+- **Provider & account hints** – Where the source format exposes account IDs or institution codes, the
+  wizard pre-fills the account and provider selectors and records that metadata on the batch. MT940
+  statements remain a one-account-per-import flow in v1—split multi-account exports before uploading.
+- **Batch logging & rules** – Import batches now record the detected file type, inferred provider, source
+  account hints, and which mapping profile (if any) was applied. Rule auto-run still triggers as soon as
+  transactions persist. The one-command launcher (`python3 launch.py`) continues to start the full
+  application without any additional flags.
+
 ## Investments v1
 
 SleekFinance now ships with a dedicated **Investments** workspace that layers portfolio analytics on
@@ -157,6 +180,8 @@ combination to sign in.
 
 ## Environment notes
 
+- Importing v2 reuses the existing browser-based parsers—no new environment variables or flags are needed,
+  and the `python3 launch.py` one-command launcher still starts the full stack with statement parsing enabled.
 - Investments reuse the existing base-currency and exchange-rate configuration—no new environment
   variables are required for holdings, pricing, or realised P/L tracking.
 - Reports reuse the existing exchange-rate table and base currency settings—no extra environment variables

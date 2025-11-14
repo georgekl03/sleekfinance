@@ -30,6 +30,7 @@ import {
   ImportBatch,
   ImportDefaults,
   ImportFormatOptions,
+  ImportFileType,
   ImportProfile,
   InclusionMode,
   MasterCategory,
@@ -153,7 +154,11 @@ const migrateState = (state: DataState): DataState => {
           ...createDefaultImportDefaults(),
           ...state.settings.importDefaults
         },
-        importProfiles: state.settings.importProfiles ?? []
+        importProfiles: (state.settings.importProfiles ?? []).map((profile) => ({
+          ...profile,
+          fileType: (profile as ImportProfile & { fileType?: ImportFileType }).fileType ?? 'csv',
+          providerHint: (profile as ImportProfile & { providerHint?: string | null }).providerHint ?? null
+        }))
       }
     : createDefaultSettings();
 
@@ -782,6 +787,18 @@ const migrateState = (state: DataState): DataState => {
     });
   }
 
+  const importBatches = Array.isArray(state.importBatches)
+    ? state.importBatches.map((batch) => ({
+        ...batch,
+        fileType: (batch as ImportBatch & { fileType?: ImportFileType }).fileType ?? 'csv',
+        providerName: (batch as ImportBatch & { providerName?: string | null }).providerName ?? null,
+        sourceAccountName:
+          (batch as ImportBatch & { sourceAccountName?: string | null }).sourceAccountName ?? null,
+        sourceAccountNumber:
+          (batch as ImportBatch & { sourceAccountNumber?: string | null }).sourceAccountNumber ?? null
+      }))
+    : [];
+
   return {
     ...(restState as DataState),
     accounts,
@@ -793,7 +810,7 @@ const migrateState = (state: DataState): DataState => {
     investmentHoldings: holdings,
     investmentPrices: prices,
     investmentSales: sales,
-    importBatches: state.importBatches ?? [],
+    importBatches,
     rules: state.rules ?? [],
     ruleLogs: state.ruleLogs ?? [],
     settings: mergedSettings,
@@ -881,6 +898,8 @@ type UpdateTagInput = Partial<CreateTagInput>;
 type SaveImportProfileInput = {
   id?: string;
   name: string;
+  fileType: ImportFileType;
+  providerHint?: string | null;
   headerFingerprint: string;
   fieldMapping: ImportProfile['fieldMapping'];
   format: ImportFormatOptions;
@@ -4533,6 +4552,8 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     const profile: ImportProfile = {
       id,
       name: input.name,
+      fileType: input.fileType,
+      providerHint: input.providerHint ?? null,
       headerFingerprint: input.headerFingerprint,
       fieldMapping: input.fieldMapping,
       format: input.format,
