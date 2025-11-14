@@ -7,6 +7,41 @@ const Help = () => (
       title="Help"
       description="Guides for managing accounts, budgets, providers, collections, categories, and payees."
     />
+    <div className="content-card" id="imports">
+      <h3>Imports workspace</h3>
+      <p className="muted-text">
+        The Imports page now recognises bank statements in CSV, OFX, QIF, and MT940 formats. Upload or
+        drag-and-drop any supported file to detect its format, infer provider and account hints, and step
+        through mapping, preview, duplicate resolution, FX handling, and batch logging exactly as you would
+        with CSV uploads. Mapping profiles track both the statement type and any provider fingerprint so
+        recurring statements rehydrate automatically. Multi-currency amounts flow through the existing FX
+        options, and rules still auto-run after import.
+      </p>
+      <div className="help-diagram">
+        <strong>Statement quick reference</strong>
+        <pre>
+          {[
+            'CSV → column mapping + saved profiles',
+            'OFX → parses STMTTRN blocks, keeps FITID + memo metadata',
+            'QIF → handles !Account headers, splits, and memo fields',
+            'MT940 → reads :61:/ :86: pairs, flags account numbers'
+          ].join('\n')}
+        </pre>
+        <Tooltip label="Each format normalises into the same fields (date, amount, description, payee, currency, external ID, memo)." />
+      </div>
+      <div className="help-diagram">
+        <strong>Provider & account hints</strong>
+        <pre>
+          {[
+            'OFX ➜ ORG/FID captured as provider hint',
+            'MT940 ➜ :20:/:25: inferred, one account per import',
+            'QIF ➜ !Account name surfaces as hint',
+            'Profiles ➜ keyed by file type + provider fingerprint'
+          ].join('\n')}
+        </pre>
+        <Tooltip label="Files that contain multiple accounts should be split into individual uploads in v1." />
+      </div>
+    </div>
     <div className="content-card">
       <h3>Investments workspace</h3>
       <p className="muted-text">

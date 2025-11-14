@@ -247,8 +247,10 @@ export type TransactionAllocation = {
 
 export type ImportSignConvention = 'positive-credit' | 'explicit-columns';
 
+export type ImportFileType = 'csv' | 'ofx' | 'qif' | 'mt940';
+
 export type ImportFormatOptions = {
-  dateFormat: string;
+  dateFormat: 'YYYY-MM-DD' | 'DD/MM/YYYY' | 'DD-MM-YYYY' | 'DD.MM.YYYY' | 'MM/DD/YYYY' | 'YYYY/MM/DD';
   decimalSeparator: ',' | '.';
   thousandsSeparator: ',' | '.' | ' ';
   signConvention: ImportSignConvention;
@@ -273,6 +275,8 @@ export type ImportColumnMapping = Partial<Record<ImportField, string[]>>;
 export type ImportProfile = {
   id: string;
   name: string;
+  fileType: ImportFileType;
+  providerHint: string | null;
   headerFingerprint: string;
   fieldMapping: ImportColumnMapping;
   format: ImportFormatOptions;
@@ -298,6 +302,10 @@ export type ImportBatch = {
   accountId: string;
   profileId: string | null;
   profileName: string | null;
+  fileType: ImportFileType;
+  providerName: string | null;
+  sourceAccountName: string | null;
+  sourceAccountNumber: string | null;
   createdAt: string;
   sourceFileName: string;
   headerFingerprint: string;

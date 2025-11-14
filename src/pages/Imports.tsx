@@ -10,6 +10,7 @@ import {
   ImportBatchSummary,
   ImportColumnMapping,
   ImportFormatOptions,
+  ImportFileType,
   ImportProfile,
   ImportField,
   SubCategory
@@ -29,6 +30,13 @@ import {
 } from '../utils/imports';
 import { formatCurrency, formatDate } from '../utils/format';
 import { generateId } from '../utils/id';
+import {
+  parseImportContent,
+  parseCsvDocument,
+  stripImportFileExtension,
+  type ImportAccountHint,
+  type ParsedImportFile
+} from '../utils/importParsers';
 
 import '../styles/imports.css';
 
@@ -117,7 +125,9 @@ const dateFormatOptions: { value: ImportFormatOptions['dateFormat']; label: stri
   { value: 'YYYY-MM-DD', label: 'YYYY-MM-DD (2024-04-30)' },
   { value: 'DD/MM/YYYY', label: 'DD/MM/YYYY (30/04/2024)' },
   { value: 'MM/DD/YYYY', label: 'MM/DD/YYYY (04/30/2024)' },
-  { value: 'DD-MM-YYYY', label: 'DD-MM-YYYY (30-04-2024)' }
+  { value: 'DD-MM-YYYY', label: 'DD-MM-YYYY (30-04-2024)' },
+  { value: 'DD.MM.YYYY', label: 'DD.MM.YYYY (30.04.2024)' },
+  { value: 'YYYY/MM/DD', label: 'YYYY/MM/DD (2024/04/30)' }
 ];
 
 const decimalSeparatorOptions: { value: ImportFormatOptions['decimalSeparator']; label: string }[] = [
@@ -143,82 +153,6 @@ const fxModeOptions: { value: FxMode; label: string }[] = [
 ];
 
 const HELP_HREF = '#/help#imports';
-
-const splitCsvLine = (line: string) => {
-  const values: string[] = [];
-  let current = '';
-  let inQuotes = false;
-
-  for (let index = 0; index < line.length; index += 1) {
-    const char = line[index];
-    if (inQuotes) {
-      if (char === '"') {
-        if (line[index + 1] === '"') {
-          current += '"';
-          index += 1;
-        } else {
-          inQuotes = false;
-        }
-      } else {
-        current += char;
-      }
-    } else if (char === ',') {
-      values.push(current);
-      current = '';
-    } else if (char === '"') {
-      inQuotes = true;
-    } else {
-      current += char;
-    }
-  }
-
-  if (inQuotes) {
-    throw new Error('Unterminated quoted field in CSV input.');
-  }
-
-  values.push(current);
-  return values;
-};
-
-const parseCsvText = (text: string) => {
-  const lines = text.split(/\r?\n/);
-  let header: string[] | null = null;
-  const rows: string[][] = [];
-
-  lines.forEach((line) => {
-    if (!line.trim()) {
-      return;
-    }
-
-    const values = splitCsvLine(line);
-    if (!header) {
-      header = values.map((value) => value ?? '').map((value) => value.trim());
-      return;
-    }
-
-    if (values.every((value) => value.trim().length === 0)) {
-      return;
-    }
-
-    rows.push(values);
-  });
-
-  if (!header) {
-    return { fields: [] as string[], rows: [] as string[][] };
-  }
-
-  return { fields: header, rows };
-};
-
-const buildRowsFromCsv = (fields: string[], values: string[][]) =>
-  values.map((row) => {
-    const normalized: RawImportRow = {};
-    fields.forEach((field, index) => {
-      const key = field ?? '';
-      normalized[key] = normalizeCell(row[index] ?? '');
-    });
-    return normalized;
-  });
 
 const DEMO_IMPORTS: DemoImportDefinition[] = [
   {
@@ -299,7 +233,10 @@ const buildAccountLookup = (accounts: Account[]): AccountLookup => {
     byId.set(account.id, account);
     byName.set(account.name.toLowerCase(), account);
     if (account.accountNumber) {
-      byNumber.set(account.accountNumber.toLowerCase(), account);
+      const lower = account.accountNumber.toLowerCase();
+      const compact = lower.replace(/\s+/g, '');
+      byNumber.set(lower, account);
+      byNumber.set(compact, account);
     }
   });
   return { byId, byName, byNumber };
@@ -494,6 +431,9 @@ const Imports = () => {
   const [selectedAccountId, setSelectedAccountId] = useState('');
   const [accountColumn, setAccountColumn] = useState<string | null>(null);
   const [fileName, setFileName] = useState('');
+  const [fileType, setFileType] = useState<ImportFileType>('csv');
+  const [detectedProvider, setDetectedProvider] = useState<string | null>(null);
+  const [accountHints, setAccountHints] = useState<ImportAccountHint[]>([]);
   const [headerFingerprint, setHeaderFingerprint] = useState('');
   const [matchedProfile, setMatchedProfile] = useState<ImportProfile | null>(null);
   const [rememberProfile, setRememberProfile] = useState(false);
@@ -537,6 +477,9 @@ const Imports = () => {
     setSelectedAccountId('');
     setAccountColumn(null);
     setFileName('');
+    setFileType('csv');
+    setDetectedProvider(null);
+    setAccountHints([]);
     setHeaderFingerprint('');
     setMatchedProfile(null);
     setRememberProfile(false);
@@ -576,56 +519,95 @@ const Imports = () => {
   );
 
   const handleFileParse = useCallback(
-    (rows: RawImportRow[], fields: string[], name: string) => {
-      setRawRows(rows);
-      setHeaders(fields);
+    (parsed: ParsedImportFile, name: string) => {
+      setRawRows(parsed.rows);
+      setHeaders(parsed.headers);
       setFileName(name);
+      setFileType(parsed.fileType);
+      setDetectedProvider(parsed.providerHint ?? null);
+      setAccountHints(parsed.accountHints);
       setRowOverrides({});
       setIncludeDuplicates(false);
       setAutoMarkTransfers(false);
       setIsDemoImport(false);
-      const fingerprint = computeHeaderFingerprint(fields);
+
+      const fingerprint = computeHeaderFingerprint(parsed.headers);
       setHeaderFingerprint(fingerprint);
-      const candidate = profileOptions.find((profile) => profile.headerFingerprint === fingerprint);
+
+      const normalizedProvider = parsed.providerHint?.trim().toLowerCase();
+      const candidate = profileOptions.find((profile) => {
+        if (profile.fileType !== parsed.fileType) return false;
+        if (normalizedProvider && profile.providerHint?.trim().toLowerCase() === normalizedProvider) {
+          return true;
+        }
+        return profile.headerFingerprint === fingerprint;
+      });
+
       if (candidate) {
         applyProfile(candidate);
       } else {
-        setMapping({});
-        setFormatOptions(state.settings.importDefaults);
-        setProfileName(name.replace(/\.csv$/i, ''));
+        if (parsed.suggestedMapping) {
+          setMapping(parsed.suggestedMapping);
+        } else {
+          setMapping({});
+        }
+        const defaults = state.settings.importDefaults;
+        const nextFormat: ImportFormatOptions = {
+          ...defaults,
+          ...(parsed.suggestedFormat ?? {})
+        };
+        setFormatOptions(nextFormat);
+        setProfileName(stripImportFileExtension(name));
         setMatchedProfile(null);
       }
-      const accountCandidate = fields.find((field) => /account\s*(name|number)/i.test(field));
+
+      const accountCandidate = parsed.headers.find((field) => /account\s*(name|number)/i.test(field));
       setAccountColumn(accountCandidate ?? null);
+
+      if (parsed.accountHints.length > 0) {
+        const matchedAccount = parsed.accountHints
+          .map((hint) => {
+            if (hint.accountId) {
+              return accountLookup.byId.get(hint.accountId) ?? null;
+            }
+            if (hint.accountNumber) {
+              const normalized = hint.accountNumber.replace(/\s+/g, '').toLowerCase();
+              return accountLookup.byNumber.get(normalized) ?? null;
+            }
+            if (hint.accountName) {
+              return accountLookup.byName.get(hint.accountName.toLowerCase()) ?? null;
+            }
+            return null;
+          })
+          .find((match): match is Account => Boolean(match));
+        if (matchedAccount) {
+          setSelectedAccountId(matchedAccount.id);
+        }
+      }
+
       setStep('mapping');
     },
-    [applyProfile, profileOptions, state.settings.importDefaults]
+    [accountLookup, applyProfile, profileOptions, state.settings.importDefaults]
   );
 
   const handleFiles = useCallback(
     (files: FileList | null) => {
       if (!files || files.length === 0) return;
       const [file] = Array.from(files);
-      if (!file.name.toLowerCase().endsWith('.csv')) {
-        setUploadError('Only CSV files are supported in this stage.');
-        return;
-      }
       setUploadError(null);
       setLoading(true);
       file
         .text()
         .then((text) => {
           try {
-            const parsed = parseCsvText(text);
-            if (parsed.fields.length === 0) {
-              throw new Error('Missing header row.');
-            }
-            const rows = buildRowsFromCsv(parsed.fields, parsed.rows);
+            const parsed = parseImportContent(file.name, text);
             setLoading(false);
-            handleFileParse(rows, parsed.fields, file.name);
+            handleFileParse(parsed, file.name);
           } catch (error) {
             setLoading(false);
-            setUploadError('Unable to parse the CSV file. Check delimiter settings and try again.');
+            setUploadError(
+              'Unable to parse the file. Supported formats: CSV, OFX, QIF, and MT940/STA/Swift statements.'
+            );
           }
         })
         .catch(() => {
@@ -654,8 +636,12 @@ const Imports = () => {
       if (accountColumn) {
         const value = normalizeCell(row[accountColumn]);
         if (value) {
+          const lowered = value.toLowerCase();
+          const compact = lowered.replace(/\s+/g, '');
           const candidate =
-            accountLookup.byName.get(value.toLowerCase()) || accountLookup.byNumber.get(value.toLowerCase());
+            accountLookup.byName.get(lowered) ||
+            accountLookup.byNumber.get(lowered) ||
+            accountLookup.byNumber.get(compact);
           if (candidate) return candidate;
         }
       }
@@ -1357,10 +1343,11 @@ const Imports = () => {
 
   const savedProfileOptions = useMemo(
     () =>
-      [...profileOptions]
+      profileOptions
+        .filter((profile) => profile.fileType === fileType)
         .sort((a, b) => a.name.localeCompare(b.name))
         .map((profile) => ({ value: profile.id, label: profile.name })),
-    [profileOptions]
+    [fileType, profileOptions]
   );
 
   const accountOptions = useMemo(
@@ -1393,13 +1380,21 @@ const Imports = () => {
       }
       const text = await response.text();
       try {
-        const parsed = parseCsvText(text);
-        if (parsed.fields.length === 0) {
+        const parsed = parseCsvDocument(text);
+        if (parsed.headers.length === 0) {
           throw new Error('Missing header row.');
         }
-        const rows = buildRowsFromCsv(parsed.fields, parsed.rows);
+        const parsedFile: ParsedImportFile = {
+          fileType: 'csv',
+          rows: parsed.rows,
+          headers: parsed.headers,
+          providerHint: null,
+          accountHints: [],
+          suggestedMapping: selection.mapping,
+          suggestedFormat: selection.format
+        };
         setLoading(false);
-        handleFileParse(rows, parsed.fields, `${selection.profileName} Demo`);
+        handleFileParse(parsedFile, `${selection.profileName} Demo`);
         setMapping(selection.mapping);
         setFormatOptions(selection.format);
         setFxOptions(selection.fx ?? { mode: 'single-rate', rateValue: '1.00' });
@@ -1415,7 +1410,7 @@ const Imports = () => {
       }
     } catch (error) {
       setLoading(false);
-      setUploadError('Unable to load the demo CSV.');
+      setUploadError('Unable to load the demo statement.');
     }
   }, [demoSelection, handleFileParse, setFormatOptions, setMapping]);
 
@@ -1442,7 +1437,9 @@ const Imports = () => {
       if (rememberProfile) {
         const saved = saveImportProfile({
           id: matchedProfile?.id,
-          name: profileName.trim() || matchedProfile?.name || fileName.replace(/\.csv$/i, ''),
+          name: profileName.trim() || matchedProfile?.name || stripImportFileExtension(fileName),
+          fileType,
+          providerHint: detectedProvider,
           headerFingerprint,
           fieldMapping: mapping,
           format: formatOptions,
@@ -1482,7 +1479,7 @@ const Imports = () => {
             tags: [],
             importBatchId: batchId,
             metadata: {
-              source: 'csv-import',
+              source: `${fileType}-import`,
               raw: row.metadata.raw,
               issues: row.issues,
               suggestedPayee: row.suggestedPayee
@@ -1514,8 +1511,14 @@ const Imports = () => {
         accountId: selectedAccount?.id ?? importableRows[0]?.accountId ?? '',
         profileId: profileForBatch?.id ?? null,
         profileName: profileForBatch?.name ?? null,
+        fileType,
+        providerName: detectedProvider ?? selectedAccount?.provider ?? null,
+        sourceAccountName:
+          selectedAccount?.name ?? accountHints[0]?.accountName ?? accountHints[0]?.accountNumber ?? null,
+        sourceAccountNumber:
+          accountHints.find((hint) => hint.accountNumber)?.accountNumber ?? null,
         createdAt: now,
-        sourceFileName: fileName || 'Uploaded CSV',
+        sourceFileName: fileName || 'Uploaded statement',
         headerFingerprint,
         options: {
           ...formatOptions,
@@ -1577,6 +1580,9 @@ const Imports = () => {
     saveImportProfile,
     selectedAccount,
     totalsByCurrency,
+    accountHints,
+    detectedProvider,
+    fileType,
     fileName,
     headerFingerprint,
     mapping,
@@ -1626,8 +1632,8 @@ const Imports = () => {
       <div className="form-card">
         <div className="card-header">
           <div>
-            <h3>Upload source CSV</h3>
-            <p className="muted-text">Accepts comma-separated (.csv) files with header rows.</p>
+            <h3>Upload bank statement</h3>
+            <p className="muted-text">Accepts CSV, OFX, QIF, and MT940 statement files with header or tag data.</p>
           </div>
           <a className="help-link" href={HELP_HREF} target="_blank" rel="noreferrer">
             Help
@@ -1636,7 +1642,7 @@ const Imports = () => {
         <div className="field">
           <label htmlFor="import-account">
             Account
-            <Tooltip label="Transactions will be imported into this account unless the CSV includes an account column." />
+            <Tooltip label="Transactions will be imported into this account unless the statement includes an account column." />
           </label>
           <select
             id="import-account"
@@ -1657,7 +1663,7 @@ const Imports = () => {
         <div className="field">
           <label htmlFor="account-column">
             Account column (optional)
-            <Tooltip label="If your CSV contains account name or number, choose the column to map rows automatically." />
+            <Tooltip label="If your statement contains account name or number, choose the column to map rows automatically." />
           </label>
           <select
             id="account-column"
@@ -1673,7 +1679,11 @@ const Imports = () => {
           </select>
         </div>
         <div className={`dropzone${loading ? ' loading' : ''}`} onDragOver={handleDragOver} onDrop={handleDrop}>
-          <p>{loading ? 'Parsing file…' : 'Drag & drop a CSV file or choose one from your computer.'}</p>
+          <p>
+            {loading
+              ? 'Parsing file…'
+              : 'Drag & drop a statement (.csv, .ofx, .qif, .mt940) or choose one from your computer.'}
+          </p>
           <button
             type="button"
             className="secondary-button"
@@ -1685,17 +1695,30 @@ const Imports = () => {
             ref={fileInputRef}
             id="import-file-input"
             type="file"
-            accept=".csv"
+            accept=".csv,.ofx,.qfx,.qif,.mt940,.sta,.stc,.txt,.xml"
             onChange={handleFileInputChange}
           />
           {fileName && <p className="muted-text small">Selected file: {fileName}</p>}
+          {fileName && (
+            <div className="muted-text small">
+              Detected format: {fileType.toUpperCase()}.
+              {detectedProvider && ` Provider: ${detectedProvider}.`}
+              {accountHints.length > 0 && (
+                <>
+                  {' '}
+                  Source account:{' '}
+                  {accountHints[0]?.accountName || accountHints[0]?.accountNumber || 'unspecified'}.
+                </>
+              )}
+            </div>
+          )}
         </div>
         {uploadError && <div className="alert error">{uploadError}</div>}
       </div>
       <div className="form-card">
         <div className="card-header">
           <div>
-            <h3>Demo CSVs</h3>
+            <h3>Demo statements (CSV)</h3>
             <p className="muted-text">Use demo data to test the wizard and multi-step flow quickly.</p>
           </div>
         </div>
@@ -1715,7 +1738,7 @@ const Imports = () => {
         </div>
         <div className="demo-actions">
           <button type="button" className="secondary-button" onClick={handleLoadDemo} disabled={loading}>
-            Load demo CSV to selected account
+            Load demo statement to selected account
           </button>
           <button type="button" className="secondary-button" onClick={handleClearDemoTransactions}>
             Clear demo transactions from selected account
@@ -1811,7 +1834,7 @@ const Imports = () => {
           <div className="card-header">
             <div>
               <h3>Column mapping</h3>
-              <p className="muted-text">Match CSV headers to the fields required for import.</p>
+              <p className="muted-text">Match source columns to the fields required for import.</p>
             </div>
             <a className="help-link" href={HELP_HREF} target="_blank" rel="noreferrer">
               Help
@@ -1820,7 +1843,11 @@ const Imports = () => {
           {detectedProfile && (
             <div className="banner success">
               <div>
-                Detected profile: <strong>{detectedProfile.name}</strong>
+                Detected profile: <strong>{detectedProfile.name}</strong>{' '}
+                <span className="muted-text small">
+                  ({detectedProfile.fileType.toUpperCase()}
+                  {detectedProfile.providerHint ? ` • ${detectedProfile.providerHint}` : ''})
+                </span>
               </div>
               <div className="banner-actions">
                 <button type="button" className="secondary-button" onClick={() => applyProfile(detectedProfile)}>
@@ -1831,6 +1858,17 @@ const Imports = () => {
                 </button>
               </div>
             </div>
+          )}
+          {(detectedProvider || accountHints.length > 0) && (
+            <p className="muted-text small">
+              {detectedProvider && <>Inferred provider: {detectedProvider}. </>}
+              {accountHints.length > 0 && (
+                <>
+                  Statement account:{' '}
+                  {accountHints[0]?.accountName || accountHints[0]?.accountNumber || 'unspecified'}.
+                </>
+              )}
+            </p>
           )}
           <div className="field">
             <label htmlFor="profile-select">Load saved profile</label>
@@ -1856,7 +1894,7 @@ const Imports = () => {
             <thead>
               <tr>
                 <th scope="col">Field</th>
-                <th scope="col">CSV column</th>
+                <th scope="col">Source column</th>
               </tr>
             </thead>
             <tbody>
@@ -1880,7 +1918,10 @@ const Imports = () => {
                 id="date-format"
                 value={formatOptions.dateFormat}
                 onChange={(event) =>
-                  setFormatOptions((prev) => ({ ...prev, dateFormat: event.target.value }))
+                  setFormatOptions((prev) => ({
+                    ...prev,
+                    dateFormat: event.target.value as ImportFormatOptions['dateFormat']
+                  }))
                 }
               >
                 {dateFormatOptions.map((option) => (
@@ -2305,7 +2346,7 @@ const Imports = () => {
             </table>
           </div>
         ) : (
-          <p className="muted-text">Upload a CSV file to see the preview.</p>
+          <p className="muted-text">Upload a statement file to see the preview.</p>
         )}
       </div>
     </div>
@@ -2589,6 +2630,24 @@ const Imports = () => {
                 <dd>{createdBatch.profileName ?? '—'}</dd>
               </div>
               <div>
+                <dt>File type</dt>
+                <dd>{createdBatch.fileType.toUpperCase()}</dd>
+              </div>
+              <div>
+                <dt>Provider</dt>
+                <dd>{createdBatch.providerName ?? '—'}</dd>
+              </div>
+              <div>
+                <dt>Statement account</dt>
+                <dd>
+                  {createdBatch.sourceAccountName
+                    ? createdBatch.sourceAccountNumber
+                      ? `${createdBatch.sourceAccountName} (${createdBatch.sourceAccountNumber})`
+                      : createdBatch.sourceAccountName
+                    : createdBatch.sourceAccountNumber ?? '—'}
+                </dd>
+              </div>
+              <div>
                 <dt>Source file</dt>
                 <dd>{createdBatch.sourceFileName}</dd>
               </div>
@@ -2608,7 +2667,7 @@ const Imports = () => {
           </button>
         </div>
         <p className="muted-text small">
-          Rules will run in Stage 4. You can revisit conflicts by selecting a new CSV or loading a saved profile.
+          Rules will run in Stage 4. You can revisit conflicts by selecting a new file or loading a saved profile.
         </p>
       </div>
     </div>
