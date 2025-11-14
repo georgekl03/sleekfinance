@@ -101,16 +101,34 @@ Count in Net Worth ── off ──> excluded from overview and net-worth total
         <pre>{`Transaction imports → match payee → apply default category/sub-category
                                      └─ add tags for recurring or special handling`}</pre>
         <Tooltip label="Update payees when merchants rebrand to keep automation healthy." />
-      </div>
     </div>
-    <div className="content-card">
-      <h3>Rules</h3>
-      <p className="muted-text">
-        Rules automate transaction clean-up without touching amounts, currencies, accounts, or dates.
-        Combine description, payee, amount, date, account, provider, category, flow, or tag checks and
-        layer actions such as setting categories, adding tags, correcting payees, marking transfers,
-        prefixing notes, or clearing the FX flag.
-      </p>
+  </div>
+  <div className="content-card">
+    <h3>Transactions workspace</h3>
+    <p className="muted-text">
+      The Transactions page is designed for large-scale review. Filters for dates, accounts, providers,
+      collections, flow types, categories, tags, text, and currencies update the virtualised table
+      immediately. Columns are customisable and persisted locally, so each reviewer can keep a preferred
+      layout.
+    </p>
+    <div className="help-diagram">
+      <strong>Workflow tips</strong>
+      <pre>{`Inline edits: click category, payee, tags, or notes directly in the grid
+Inspector: open a row to see raw import fields, audit history, and edit everything at once
+Bulk actions: select rows to set categories, set payees, or add/remove tags with confirmation
+Splits: break a transaction into percentage or value-based lines that must balance exactly
+Export: download the filtered, visible grid to CSV in native or base currency`}</pre>
+      <Tooltip label="Manual edits are tracked per transaction so you can see who touched what." />
+    </div>
+  </div>
+  <div className="content-card">
+    <h3>Rules</h3>
+    <p className="muted-text">
+      Rules automate transaction clean-up without touching amounts, currencies, accounts, or dates.
+      Combine description, payee, amount, date, account, provider, category, flow, or tag checks and
+      layer actions such as setting categories, adding tags, correcting payees, marking transfers,
+      prefixing notes, or clearing the FX flag.
+    </p>
       <div className="help-diagram">
         <strong>Execution tips</strong>
         <pre>{`Priority: lower numbers run first

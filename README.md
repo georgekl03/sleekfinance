@@ -75,6 +75,28 @@ combination to sign in.
 - **Demo CSVs and quick testing** – Download staged CSV samples, load them directly into the wizard, and
   clear imported demo transactions per account.
 
+## Transactions Workspace
+
+- **Virtualised review table** – The Transactions page now renders a virtual list that comfortably
+  handles thousands of rows. Column order and visibility are fully customisable and persisted per
+  browser, so analysts can build layouts around their reconciliation workflow.
+- **Contextual filters** – A filter bar supports combinations of date ranges, accounts, providers,
+  collections, flow types, categories, sub-categories, payee text search, tags, amount ranges, free
+  text search, and native/base currency modes. Filters update the table instantly and respect multi-
+  currency display rules.
+- **Inline and detailed editing** – Click directly into category, payee, tag, or note cells to update
+  a transaction without leaving the table. A side-panel inspector exposes full metadata, raw import
+  fields, audit history, and rule traces, and mirrors the same editing options in a larger layout.
+- **Bulk tooling** – Select multiple rows to set categories, set payees, add/remove tags, or preview
+  rule runs. A confirmation modal summarises changes before they apply.
+- **Split transactions** – Replace a transaction with any number of split lines allocated by amount or
+  percentage. Each line can carry its own category, payee, tags, and notes, and the split enforces
+  amount parity with the original entry.
+- **Audit trail** – Manual edits append to a per-transaction audit log and surface an in-table manual
+  indicator. Rule runs continue to log separately so automated updates remain distinguishable.
+- **CSV export** – Export the filtered, visible grid to CSV in either native or base currency with a
+  single click. The export honours current column visibility and ordering.
+
 ## Rules
 
 - **Purpose** – Rules automatically assign categories, sub-categories, tags, payees, flow overrides, note
